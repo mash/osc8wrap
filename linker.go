@@ -30,14 +30,19 @@ type Linker struct {
 	output    io.Writer
 	cwd       string
 	hostname  string
+	scheme    string
 	fileCache map[string]bool
 }
 
-func NewLinker(output io.Writer, cwd, hostname string) *Linker {
+func NewLinker(output io.Writer, cwd, hostname, scheme string) *Linker {
+	if scheme == "" {
+		scheme = "file"
+	}
 	return &Linker{
 		output:    output,
 		cwd:       cwd,
 		hostname:  hostname,
+		scheme:    scheme,
 		fileCache: make(map[string]bool),
 	}
 }
@@ -90,7 +95,7 @@ func (l *Linker) convertLine(data []byte) []byte {
 		prefix := fullMatch[:bytes.Index(fullMatch, pathPart)]
 		displayText := append(pathPart, locSuffix...)
 
-		return l.wrapFileWithOSC8(prefix, absPath, displayText)
+		return l.wrapFileWithOSC8(prefix, absPath, string(locSuffix), displayText)
 	})
 }
 
@@ -111,16 +116,22 @@ func (l *Linker) fileExists(path string) bool {
 	return exists
 }
 
-func (l *Linker) wrapFileWithOSC8(prefix []byte, absPath string, displayText []byte) []byte {
+func (l *Linker) wrapFileWithOSC8(prefix []byte, absPath, locSuffix string, displayText []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
-	buf.WriteString("\x1b]8;;file://")
-	buf.WriteString(l.hostname)
-	buf.WriteString(absPath)
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.formatFileURL(absPath, locSuffix))
 	buf.WriteByte('\x07')
 	buf.Write(displayText)
 	buf.WriteString("\x1b]8;;\x07")
 	return buf.Bytes()
+}
+
+func (l *Linker) formatFileURL(absPath, locSuffix string) string {
+	if l.scheme == "file" {
+		return "file://" + l.hostname + absPath
+	}
+	return l.scheme + "://file" + absPath + locSuffix
 }
 
 func (l *Linker) wrapURLWithOSC8(url []byte) []byte {

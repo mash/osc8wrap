@@ -6,22 +6,74 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
 	"golang.org/x/term"
 )
 
+const usage = `Usage: osc8wrap [options] <command> [args...]
+       <other command> | osc8wrap [options]
+
+Options:
+  --scheme=NAME  URL scheme for file links (default: file)
+                 Can also be set via OSC8WRAP_SCHEME env var
+                 Examples: file, vscode, cursor, zed
+
+Examples:
+  osc8wrap go build ./...
+  osc8wrap --scheme=cursor grep -rn "TODO" .
+  grep -rn "TODO" . | osc8wrap
+`
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <command> [args...]\n", os.Args[0])
-		os.Exit(1)
-	}
+	scheme, cmdArgs := parseArgs(os.Args[1:])
 
 	hostname, _ := os.Hostname()
 	cwd, _ := os.Getwd()
 
-	cmd := exec.Command(os.Args[1], os.Args[2:]...)
+	linker := NewLinker(os.Stdout, cwd, hostname, scheme)
+
+	if len(cmdArgs) == 0 {
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(1)
+		}
+		runPipeMode(linker)
+	} else {
+		runPTYMode(linker, cmdArgs)
+	}
+}
+
+func parseArgs(args []string) (scheme string, cmdArgs []string) {
+	scheme = os.Getenv("OSC8WRAP_SCHEME")
+
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--scheme=") {
+			scheme = strings.TrimPrefix(arg, "--scheme=")
+		} else if arg == "--" {
+			cmdArgs = args[i+1:]
+			return
+		} else if strings.HasPrefix(arg, "-") {
+			fmt.Fprintf(os.Stderr, "unknown option: %s\n", arg)
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(1)
+		} else {
+			cmdArgs = args[i:]
+			return
+		}
+	}
+	return
+}
+
+func runPipeMode(linker *Linker) {
+	io.Copy(linker, os.Stdin)
+	os.Exit(0)
+}
+
+func runPTYMode(linker *Linker, cmdArgs []string) {
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -37,8 +89,6 @@ func main() {
 	if err == nil {
 		defer term.Restore(int(os.Stdin.Fd()), oldState)
 	}
-
-	linker := NewLinker(os.Stdout, cwd, hostname)
 
 	go io.Copy(ptmx, os.Stdin)
 

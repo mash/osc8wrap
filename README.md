@@ -11,8 +11,15 @@ go install github.com/mash/osc8wrap@latest
 ## Usage
 
 ```bash
-osc8wrap <command> [args...]
+osc8wrap [options] <command> [args...]
+<other command> | osc8wrap [options]
 ```
+
+### Options
+
+- `--scheme=NAME` - URL scheme for file links (default: `file`)
+
+The scheme can also be set via the `OSC8WRAP_SCHEME` environment variable. The CLI flag takes precedence.
 
 ### Examples
 
@@ -25,6 +32,17 @@ osc8wrap grep -rn "TODO" .
 
 # Make Claude Code output clickable
 osc8wrap claude
+
+# Use vscode:// scheme to open files in VS Code at specific line
+osc8wrap --scheme=vscode go build ./...
+
+# Set default scheme via environment variable
+export OSC8WRAP_SCHEME=cursor
+osc8wrap go test ./...
+
+# Pipe mode (auto-detected when stdin is not a terminal)
+grep -rn "TODO" . | osc8wrap
+cat build.log | osc8wrap --scheme=vscode
 ```
 
 ## What it does
@@ -33,6 +51,7 @@ osc8wrap claude
 - Detects `https://` URLs
 - Converts them to OSC 8 hyperlinks that work in supported terminals
 - Runs commands through a PTY, so colors and interactive programs work
+- Supports pipe mode for processing output from other commands
 
 ### Supported patterns
 
@@ -47,6 +66,19 @@ osc8wrap claude
 | HTTPS URL            | `https://example.com/docs` |
 
 File paths are only linked if the file exists. Extensionless files are supported when they have a path prefix (`/`, `./`, `../`) or end with `file` (e.g., Makefile, Dockerfile, Gemfile).
+
+### Editor schemes
+
+By default, file links use the `file://` scheme. To open files directly in your editor at the specific line, use an editor-specific scheme:
+
+| Scheme   | URL format                          |
+| -------- | ----------------------------------- |
+| file     | `file://hostname/path`              |
+| vscode   | `vscode://file/path:line:col`       |
+| cursor   | `cursor://file/path:line:col`       |
+| zed      | `zed://file/path:line:col`          |
+
+Any scheme name is accepted and will be formatted as `{scheme}://file{path}:{line}:{col}`.
 
 ## Terminal support
 

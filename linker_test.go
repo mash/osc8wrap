@@ -127,7 +127,7 @@ func TestLinker_Write(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tt.cwd, hostname)
+			linker := NewLinker(&buf, tt.cwd, hostname, "file")
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
@@ -150,7 +150,7 @@ func TestLinker_OutputsImmediately(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinker(&buf, tmpDir, hostname)
+	linker := NewLinker(&buf, tmpDir, hostname, "file")
 
 	linker.Write([]byte("first line\nsecond "))
 	if got := buf.String(); got != "first line\nsecond " {
@@ -169,10 +169,80 @@ func TestLinker_OutputsWithoutNewline(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinker(&buf, tmpDir, hostname)
+	linker := NewLinker(&buf, tmpDir, hostname, "file")
 
 	linker.Write([]byte("no newline"))
 	if got := buf.String(); got != "no newline" {
 		t.Errorf("got %q, want %q", got, "no newline")
+	}
+}
+
+func TestLinker_Schemes(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	hostname := "testhost"
+
+	tests := []struct {
+		name     string
+		scheme   string
+		input    string
+		expected string
+	}{
+		{
+			name:     "vscode scheme with line and column",
+			scheme:   "vscode",
+			input:    testFile + ":42:10\n",
+			expected: "\x1b]8;;vscode://file" + testFile + ":42:10\x07" + testFile + ":42:10\x1b]8;;\x07\n",
+		},
+		{
+			name:     "vscode scheme with line only",
+			scheme:   "vscode",
+			input:    testFile + ":42\n",
+			expected: "\x1b]8;;vscode://file" + testFile + ":42\x07" + testFile + ":42\x1b]8;;\x07\n",
+		},
+		{
+			name:     "vscode scheme without line",
+			scheme:   "vscode",
+			input:    testFile + "\n",
+			expected: "\x1b]8;;vscode://file" + testFile + "\x07" + testFile + "\x1b]8;;\x07\n",
+		},
+		{
+			name:     "cursor scheme",
+			scheme:   "cursor",
+			input:    testFile + ":10:5\n",
+			expected: "\x1b]8;;cursor://file" + testFile + ":10:5\x07" + testFile + ":10:5\x1b]8;;\x07\n",
+		},
+		{
+			name:     "custom scheme",
+			scheme:   "myeditor",
+			input:    testFile + ":1\n",
+			expected: "\x1b]8;;myeditor://file" + testFile + ":1\x07" + testFile + ":1\x1b]8;;\x07\n",
+		},
+		{
+			name:     "empty scheme defaults to file",
+			scheme:   "",
+			input:    testFile + ":42\n",
+			expected: "\x1b]8;;file://" + hostname + testFile + "\x07" + testFile + ":42\x1b]8;;\x07\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinker(&buf, tmpDir, hostname, tt.scheme)
+
+			_, err := linker.Write([]byte(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
 	}
 }
