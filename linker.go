@@ -14,10 +14,14 @@ var combinedPattern = regexp.MustCompile(
 		`|` +
 		// file path pattern
 		`(?:^|[^/\w.-]|\x1b\[[0-9;]*m)` + // boundary: start of line, non-path char, or ANSI SGR
-		`((\.{0,2}/)?` + // group 2: path, group 3: optional ./ or ../
-		`[\w./-]+` + // path characters
-		`\.\w+)` + // file extension (required)
-		`(:\d+(?::\d+)?)?`, // group 4: optional :line or :line:col
+		`(` + // group 2: path
+		`\.{0,2}/[\w./-]+(?:\.\w+)?` + // starts with /, ./, or ../: extension optional
+		`|` +
+		`[\w./-]+\.\w+` + // no path prefix: extension required
+		`|` +
+		`\w+file` + // files ending with "file" (Makefile, Dockerfile, etc.)
+		`)` +
+		`(:\d+(?::\d+)?)?`, // group 3: optional :line or :line:col
 )
 
 var osc8Start = []byte("\x1b]8;;")
@@ -68,7 +72,7 @@ func (l *Linker) convertLine(data []byte) []byte {
 
 		fullMatch := submatch[0]
 		pathPart := submatch[2]
-		locSuffix := submatch[4]
+		locSuffix := submatch[3]
 
 		if len(pathPart) == 0 {
 			return match

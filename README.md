@@ -42,9 +42,11 @@ osc8wrap claude
 | With line number     | `/path/to/file.go:42`      |
 | With line and column | `/path/to/file.go:42:10`   |
 | Relative path        | `./src/main.go:10`         |
+| Extensionless path   | `./README`, `/path/to/LICENSE` |
+| *file names          | `Makefile`, `Dockerfile`   |
 | HTTPS URL            | `https://example.com/docs` |
 
-File paths are only linked if the file exists.
+File paths are only linked if the file exists. Extensionless files are supported when they have a path prefix (`/`, `./`, `../`) or end with `file` (e.g., Makefile, Dockerfile, Gemfile).
 
 ## Terminal support
 

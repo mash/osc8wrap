@@ -13,6 +13,10 @@ func TestLinker_Write(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	makefile := filepath.Join(tmpDir, "Makefile")
+	if err := os.WriteFile(makefile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	hostname := "testhost"
 
@@ -93,6 +97,30 @@ func TestLinker_Write(t *testing.T) {
 			input:    testFile + " see https://example.com/docs\n",
 			cwd:      tmpDir,
 			expected: "\x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07 see \x1b]8;;https://example.com/docs\x07https://example.com/docs\x1b]8;;\x07\n",
+		},
+		{
+			name:     "extensionless file with absolute path",
+			input:    "error in " + makefile + "\n",
+			cwd:      tmpDir,
+			expected: "error in \x1b]8;;file://testhost" + makefile + "\x07" + makefile + "\x1b]8;;\x07\n",
+		},
+		{
+			name:     "extensionless file with relative path",
+			input:    "error in ./Makefile\n",
+			cwd:      tmpDir,
+			expected: "error in \x1b]8;;file://testhost" + makefile + "\x07./Makefile\x1b]8;;\x07\n",
+		},
+		{
+			name:     "known extensionless file without path prefix",
+			input:    "edit Makefile please\n",
+			cwd:      tmpDir,
+			expected: "edit \x1b]8;;file://testhost" + makefile + "\x07Makefile\x1b]8;;\x07 please\n",
+		},
+		{
+			name:     "unknown extensionless file without path prefix not linked",
+			input:    "edit UNKNOWN please\n",
+			cwd:      tmpDir,
+			expected: "edit UNKNOWN please\n",
 		},
 	}
 
