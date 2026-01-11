@@ -4,9 +4,15 @@ A CLI tool that wraps any command and converts file paths and URLs in output to 
 
 ## Installation
 
+### From source
+
 ```bash
 go install github.com/mash/osc8wrap@latest
 ```
+
+### Binary releases
+
+Download from [GitHub Releases](https://github.com/mash/osc8wrap/releases).
 
 ## Usage
 
