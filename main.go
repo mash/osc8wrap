@@ -28,6 +28,10 @@ Examples:
 `
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	scheme, cmdArgs := parseArgs(os.Args[1:])
 
 	hostname, _ := os.Hostname()
@@ -38,12 +42,11 @@ func main() {
 	if len(cmdArgs) == 0 {
 		if term.IsTerminal(int(os.Stdin.Fd())) {
 			fmt.Fprint(os.Stderr, usage)
-			os.Exit(1)
+			return 1
 		}
-		runPipeMode(linker)
-	} else {
-		runPTYMode(linker, cmdArgs)
+		return runPipeMode(linker)
 	}
+	return runPTYMode(linker, cmdArgs)
 }
 
 func parseArgs(args []string) (scheme string, cmdArgs []string) {
@@ -67,18 +70,18 @@ func parseArgs(args []string) (scheme string, cmdArgs []string) {
 	return
 }
 
-func runPipeMode(linker *Linker) {
+func runPipeMode(linker *Linker) int {
 	io.Copy(linker, os.Stdin)
-	os.Exit(0)
+	return 0
 }
 
-func runPTYMode(linker *Linker, cmdArgs []string) {
+func runPTYMode(linker *Linker, cmdArgs []string) int {
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to start pty: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	defer ptmx.Close()
 
@@ -87,7 +90,10 @@ func runPTYMode(linker *Linker, cmdArgs []string) {
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err == nil {
-		defer term.Restore(int(os.Stdin.Fd()), oldState)
+		defer func() {
+			os.Stdout.WriteString("\033[0m")
+			term.Restore(int(os.Stdin.Fd()), oldState)
+		}()
 	}
 
 	go io.Copy(ptmx, os.Stdin)
@@ -98,11 +104,10 @@ func runPTYMode(linker *Linker, cmdArgs []string) {
 
 	cmd.Wait()
 
-	exitCode := 0
 	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
+		return cmd.ProcessState.ExitCode()
 	}
-	os.Exit(exitCode)
+	return 0
 }
 
 func handleResize(ptmx *os.File) {
