@@ -6,45 +6,66 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
-var combinedPattern = regexp.MustCompile(
-	// group 1: https URL (no whitespace, quotes, backticks, or control chars)
-	`(https://[^\s<>"'\x60\x00-\x1f\x7f]+)` +
-		`|` +
-		// file path pattern
+var osc8Start = []byte("\x1b]8;;")
+
+type Linker struct {
+	output     io.Writer
+	cwd        string
+	hostname   string
+	scheme     string
+	fileCache  map[string]bool
+	domains    []string
+	urlPattern *regexp.Regexp
+}
+
+func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
+	if scheme == "" {
+		scheme = "file"
+	}
+	l := &Linker{
+		output:    output,
+		cwd:       cwd,
+		hostname:  hostname,
+		scheme:    scheme,
+		fileCache: make(map[string]bool),
+		domains:   domains,
+	}
+	l.urlPattern = l.buildPattern()
+	return l
+}
+
+func (l *Linker) buildPattern() *regexp.Regexp {
+	// group 1: https URL
+	pattern := `(https://[^\s<>"'\x60\x00-\x1f\x7f]+)`
+
+	// group 2: bare domain URL with boundary (github.com/..., etc.)
+	// boundary is included to prevent file path pattern from matching domain names
+	if len(l.domains) > 0 {
+		escaped := make([]string, len(l.domains))
+		for i, d := range l.domains {
+			escaped[i] = regexp.QuoteMeta(d)
+		}
+		pattern += `|(?:^|[^/\w.-]|\x1b\[[0-9;]*m)((?:` + strings.Join(escaped, "|") + `)/[^\s<>"'\x60\x00-\x1f\x7f]+)`
+	} else {
+		pattern += `|()` // empty group to keep group numbers consistent
+	}
+
+	// file path pattern
+	pattern += `|` +
 		`(?:^|[^/\w.-]|\x1b\[[0-9;]*m)` + // boundary: start of line, non-path char, or ANSI SGR
-		`(` + // group 2: path
+		`(` + // group 3: path
 		`\.{0,2}/[\w./-]+(?:\.\w+)?` + // starts with /, ./, or ../: extension optional
 		`|` +
 		`[\w./-]+\.\w+` + // no path prefix: extension required
 		`|` +
 		`\w+file` + // files ending with "file" (Makefile, Dockerfile, etc.)
 		`)` +
-		`(:\d+(?:[-:]\d+)?)?`, // group 3: optional :line, :line:col, or :line-line
-)
+		`(:\d+(?:[-:]\d+)?)?` // group 4: optional :line, :line:col, or :line-line
 
-var osc8Start = []byte("\x1b]8;;")
-
-type Linker struct {
-	output    io.Writer
-	cwd       string
-	hostname  string
-	scheme    string
-	fileCache map[string]bool
-}
-
-func NewLinker(output io.Writer, cwd, hostname, scheme string) *Linker {
-	if scheme == "" {
-		scheme = "file"
-	}
-	return &Linker{
-		output:    output,
-		cwd:       cwd,
-		hostname:  hostname,
-		scheme:    scheme,
-		fileCache: make(map[string]bool),
-	}
+	return regexp.MustCompile(pattern)
 }
 
 func (l *Linker) Write(p []byte) (n int, err error) {
@@ -65,19 +86,28 @@ func (l *Linker) convertLine(data []byte) []byte {
 		return data
 	}
 
-	return combinedPattern.ReplaceAllFunc(data, func(match []byte) []byte {
-		submatch := combinedPattern.FindSubmatch(match)
+	return l.urlPattern.ReplaceAllFunc(data, func(match []byte) []byte {
+		submatch := l.urlPattern.FindSubmatch(match)
 		if submatch == nil {
 			return match
 		}
 
+		// group 1: https URL
 		if len(submatch[1]) > 0 {
 			return l.wrapURLWithOSC8(submatch[1])
 		}
 
+		// group 2: bare domain URL
+		if len(submatch[2]) > 0 {
+			fullMatch := submatch[0]
+			domainPart := submatch[2]
+			prefix := fullMatch[:bytes.Index(fullMatch, domainPart)]
+			return l.wrapBareDomainWithOSC8(prefix, domainPart)
+		}
+
 		fullMatch := submatch[0]
-		pathPart := submatch[2]
-		locSuffix := submatch[3]
+		pathPart := submatch[3]  // group 3: path
+		locSuffix := submatch[4] // group 4: loc suffix
 
 		if len(pathPart) == 0 {
 			return match
@@ -152,6 +182,17 @@ func (l *Linker) wrapURLWithOSC8(url []byte) []byte {
 	buf.Write(url)
 	buf.WriteByte('\x07')
 	buf.Write(url)
+	buf.WriteString("\x1b]8;;\x07")
+	return buf.Bytes()
+}
+
+func (l *Linker) wrapBareDomainWithOSC8(prefix, domain []byte) []byte {
+	var buf bytes.Buffer
+	buf.Write(prefix)
+	buf.WriteString("\x1b]8;;https://")
+	buf.Write(domain)
+	buf.WriteByte('\x07')
+	buf.Write(domain)
 	buf.WriteString("\x1b]8;;\x07")
 	return buf.Bytes()
 }

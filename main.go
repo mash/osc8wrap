@@ -17,9 +17,11 @@ const usage = `Usage: osc8wrap [options] <command> [args...]
        <other command> | osc8wrap [options]
 
 Options:
-  --scheme=NAME  URL scheme for file links (default: file)
-                 Can also be set via OSC8WRAP_SCHEME env var
-                 Examples: file, vscode, cursor, zed
+  --scheme=NAME   URL scheme for file links (default: file)
+                  Can also be set via OSC8WRAP_SCHEME env var
+                  Examples: file, vscode, cursor, zed
+  --domains=LIST  Comma-separated domains to linkify without https://
+                  (default: github.com, env: OSC8WRAP_DOMAINS)
 
 Examples:
   osc8wrap go build ./...
@@ -32,12 +34,12 @@ func main() {
 }
 
 func run() int {
-	scheme, cmdArgs := parseArgs(os.Args[1:])
+	scheme, domains, cmdArgs := parseArgs(os.Args[1:])
 
 	hostname, _ := os.Hostname()
 	cwd, _ := os.Getwd()
 
-	linker := NewLinker(os.Stdout, cwd, hostname, scheme)
+	linker := NewLinker(os.Stdout, cwd, hostname, scheme, domains)
 
 	if len(cmdArgs) == 0 {
 		if term.IsTerminal(int(os.Stdin.Fd())) {
@@ -49,12 +51,18 @@ func run() int {
 	return runPTYMode(linker, cmdArgs)
 }
 
-func parseArgs(args []string) (scheme string, cmdArgs []string) {
+func parseArgs(args []string) (scheme string, domains []string, cmdArgs []string) {
 	scheme = os.Getenv("OSC8WRAP_SCHEME")
+	domains = []string{"github.com"}
+	if env := os.Getenv("OSC8WRAP_DOMAINS"); env != "" {
+		domains = splitDomains(env)
+	}
 
 	for i, arg := range args {
-		if strings.HasPrefix(arg, "--scheme=") {
-			scheme = strings.TrimPrefix(arg, "--scheme=")
+		if v, ok := strings.CutPrefix(arg, "--scheme="); ok {
+			scheme = v
+		} else if v, ok := strings.CutPrefix(arg, "--domains="); ok {
+			domains = splitDomains(v)
 		} else if arg == "--" {
 			cmdArgs = args[i+1:]
 			return
@@ -68,6 +76,20 @@ func parseArgs(args []string) (scheme string, cmdArgs []string) {
 		}
 	}
 	return
+}
+
+func splitDomains(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			result = append(result, t)
+		}
+	}
+	return result
 }
 
 func runPipeMode(linker *Linker) int {

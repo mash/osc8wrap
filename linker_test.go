@@ -127,7 +127,7 @@ func TestLinker_Write(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tt.cwd, hostname, "file")
+			linker := NewLinker(&buf, tt.cwd, hostname, "file", []string{"github.com"})
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
@@ -150,7 +150,7 @@ func TestLinker_OutputsImmediately(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinker(&buf, tmpDir, hostname, "file")
+	linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
 
 	linker.Write([]byte("first line\nsecond "))
 	if got := buf.String(); got != "first line\nsecond " {
@@ -169,7 +169,7 @@ func TestLinker_OutputsWithoutNewline(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinker(&buf, tmpDir, hostname, "file")
+	linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
 
 	linker.Write([]byte("no newline"))
 	if got := buf.String(); got != "no newline" {
@@ -245,7 +245,84 @@ func TestLinker_Schemes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tmpDir, hostname, tt.scheme)
+			linker := NewLinker(&buf, tmpDir, hostname, tt.scheme, []string{"github.com"})
+
+			_, err := linker.Write([]byte(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLinker_BareDomains(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	tests := []struct {
+		name     string
+		domains  []string
+		input    string
+		expected string
+	}{
+		{
+			name:     "https github.com unchanged",
+			domains:  []string{"github.com"},
+			input:    "https://github.com/mash/osc8wrap",
+			expected: "\x1b]8;;https://github.com/mash/osc8wrap\x07https://github.com/mash/osc8wrap\x1b]8;;\x07",
+		},
+		{
+			name:     "bare github.com",
+			domains:  []string{"github.com"},
+			input:    "github.com/mash/osc8wrap",
+			expected: "\x1b]8;;https://github.com/mash/osc8wrap\x07github.com/mash/osc8wrap\x1b]8;;\x07",
+		},
+		{
+			name:     "bare github.com with path",
+			domains:  []string{"github.com"},
+			input:    "see github.com/user/repo/issues/123",
+			expected: "see \x1b]8;;https://github.com/user/repo/issues/123\x07github.com/user/repo/issues/123\x1b]8;;\x07",
+		},
+		{
+			name:     "mixed https and bare",
+			domains:  []string{"github.com"},
+			input:    "https://github.com/a and github.com/b",
+			expected: "\x1b]8;;https://github.com/a\x07https://github.com/a\x1b]8;;\x07 and \x1b]8;;https://github.com/b\x07github.com/b\x1b]8;;\x07",
+		},
+		{
+			name:     "custom domain gitlab.com",
+			domains:  []string{"gitlab.com"},
+			input:    "gitlab.com/user/repo",
+			expected: "\x1b]8;;https://gitlab.com/user/repo\x07gitlab.com/user/repo\x1b]8;;\x07",
+		},
+		{
+			name:     "multiple domains",
+			domains:  []string{"github.com", "gitlab.com"},
+			input:    "github.com/a and gitlab.com/b",
+			expected: "\x1b]8;;https://github.com/a\x07github.com/a\x1b]8;;\x07 and \x1b]8;;https://gitlab.com/b\x07gitlab.com/b\x1b]8;;\x07",
+		},
+		{
+			name:     "unlisted domain not linked",
+			domains:  []string{"github.com"},
+			input:    "gitlab.com/user/repo",
+			expected: "gitlab.com/user/repo",
+		},
+		{
+			name:     "empty domains disables bare linking",
+			domains:  nil,
+			input:    "github.com/user/repo",
+			expected: "github.com/user/repo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinker(&buf, tmpDir, hostname, "file", tt.domains)
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
