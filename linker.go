@@ -1,37 +1,85 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 var osc8Start = []byte("\x1b]8;;")
 
+type FileInfo struct {
+	path  string
+	mtime time.Time
+}
+
+type FileIndex struct {
+	mu    sync.RWMutex
+	ready bool
+	files map[string][]FileInfo
+}
+
+type LinkerOptions struct {
+	Output          io.Writer
+	Cwd             string
+	Hostname        string
+	Scheme          string
+	Domains         []string
+	ResolveBasename bool
+	ExcludeDirs     []string
+}
+
 type Linker struct {
-	output     io.Writer
-	cwd        string
-	hostname   string
-	scheme     string
-	fileCache  map[string]bool
-	domains    []string
-	urlPattern *regexp.Regexp
+	output          io.Writer
+	cwd             string
+	hostname        string
+	scheme          string
+	fileCache       map[string]bool
+	domains         []string
+	urlPattern      *regexp.Regexp
+	resolveBasename bool
+	excludeDirs     []string
+	index           *FileIndex
+	indexReady      chan struct{}
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
+	return NewLinkerWithOptions(LinkerOptions{
+		Output:          output,
+		Cwd:             cwd,
+		Hostname:        hostname,
+		Scheme:          scheme,
+		Domains:         domains,
+		ResolveBasename: false,
+	})
+}
+
+func NewLinkerWithOptions(opts LinkerOptions) *Linker {
+	scheme := opts.Scheme
 	if scheme == "" {
 		scheme = "file"
 	}
 	l := &Linker{
-		output:    output,
-		cwd:       cwd,
-		hostname:  hostname,
-		scheme:    scheme,
-		fileCache: make(map[string]bool),
-		domains:   domains,
+		output:          opts.Output,
+		cwd:             opts.Cwd,
+		hostname:        opts.Hostname,
+		scheme:          scheme,
+		fileCache:       make(map[string]bool),
+		domains:         opts.Domains,
+		resolveBasename: opts.ResolveBasename,
+		excludeDirs:     opts.ExcludeDirs,
+		index: &FileIndex{
+			files: make(map[string][]FileInfo),
+		},
+		indexReady: make(chan struct{}),
 	}
 	l.urlPattern = l.buildPattern()
 	return l
@@ -119,7 +167,10 @@ func (l *Linker) convertLine(data []byte) []byte {
 		}
 
 		if !l.fileExists(absPath) {
-			return match
+			absPath = l.resolveViaIndex(string(pathPart))
+			if absPath == "" {
+				return match
+			}
 		}
 
 		prefix := fullMatch[:bytes.Index(fullMatch, pathPart)]
@@ -195,4 +246,158 @@ func (l *Linker) wrapBareDomainWithOSC8(prefix, domain []byte) []byte {
 	buf.Write(domain)
 	buf.WriteString("\x1b]8;;\x07")
 	return buf.Bytes()
+}
+
+func (l *Linker) StartIndexer(ctx context.Context) {
+	if !l.resolveBasename {
+		close(l.indexReady)
+		return
+	}
+
+	gitDir := filepath.Join(l.cwd, ".git")
+	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+		l.buildIndexFromGit(ctx)
+	} else {
+		l.buildIndexFromFilesystem(ctx)
+	}
+
+	l.index.mu.Lock()
+	l.index.ready = true
+	l.index.mu.Unlock()
+	close(l.indexReady)
+}
+
+func (l *Linker) buildIndexFromGit(ctx context.Context) {
+	cmd := exec.CommandContext(ctx, "git", "ls-files")
+	cmd.Dir = l.cwd
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			cmd.Process.Kill()
+			return
+		default:
+		}
+
+		relPath := scanner.Text()
+		absPath := filepath.Join(l.cwd, relPath)
+		info, err := os.Stat(absPath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		basename := filepath.Base(relPath)
+		l.index.mu.Lock()
+		l.index.files[basename] = append(l.index.files[basename], FileInfo{
+			path:  absPath,
+			mtime: info.ModTime(),
+		})
+		l.index.mu.Unlock()
+	}
+
+	cmd.Wait()
+}
+
+func (l *Linker) buildIndexFromFilesystem(ctx context.Context) {
+	excludeSet := make(map[string]bool)
+	for _, d := range l.excludeDirs {
+		excludeSet[d] = true
+	}
+
+	filepath.WalkDir(l.cwd, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return filepath.SkipAll
+		default:
+		}
+
+		if d.IsDir() {
+			if excludeSet[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		basename := filepath.Base(path)
+		l.index.mu.Lock()
+		l.index.files[basename] = append(l.index.files[basename], FileInfo{
+			path:  path,
+			mtime: info.ModTime(),
+		})
+		l.index.mu.Unlock()
+
+		return nil
+	})
+}
+
+func (l *Linker) WaitForIndex(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-l.indexReady:
+		return nil
+	}
+}
+
+func (l *Linker) resolveViaIndex(path string) string {
+	if !l.resolveBasename {
+		return ""
+	}
+
+	l.index.mu.RLock()
+	ready := l.index.ready
+	l.index.mu.RUnlock()
+	if !ready {
+		return ""
+	}
+
+	basename := filepath.Base(path)
+	l.index.mu.RLock()
+	candidates := l.index.files[basename]
+	l.index.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	if strings.Contains(path, "/") {
+		var filtered []FileInfo
+		for _, c := range candidates {
+			if strings.HasSuffix(c.path, "/"+path) {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
+	}
+
+	if len(candidates) == 1 {
+		return candidates[0].path
+	}
+
+	var newest FileInfo
+	for _, c := range candidates {
+		if c.mtime.After(newest.mtime) {
+			newest = c
+		}
+	}
+	return newest.path
 }

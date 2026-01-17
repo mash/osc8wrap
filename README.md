@@ -24,8 +24,18 @@ osc8wrap [options] <command> [args...]
 ### Options
 
 - `--scheme=NAME` - URL scheme for file links (default: `file`)
+- `--domains=LIST` - Comma-separated domains to linkify without `https://` (default: `github.com`)
+- `--no-resolve-basename` - Disable basename resolution (default: enabled)
+- `--exclude-dir=DIR,...` - Directories to exclude from basename search (default: `vendor,node_modules,.git,__pycache__,.cache`)
 
-The scheme can also be set via the `OSC8WRAP_SCHEME` environment variable. The CLI flag takes precedence.
+Options can also be set via environment variables. CLI flags take precedence.
+
+| Flag | Environment Variable |
+| ---- | -------------------- |
+| `--scheme` | `OSC8WRAP_SCHEME` |
+| `--domains` | `OSC8WRAP_DOMAINS` |
+| `--no-resolve-basename` | `OSC8WRAP_NO_RESOLVE_BASENAME=1` |
+| `--exclude-dir` | `OSC8WRAP_EXCLUDE_DIRS` |
 
 ### Examples
 
@@ -72,6 +82,33 @@ cat build.log | osc8wrap --scheme=vscode
 | HTTPS URL            | `https://example.com/docs` |
 
 File paths are only linked if the file exists. Extensionless files are supported when they have a path prefix (`/`, `./`, `../`) or end with `file` (e.g., Makefile, Dockerfile, Gemfile).
+
+### Basename resolution
+
+When a path like `main.go:10` doesn't exist relative to the current directory, osc8wrap searches for the file in the project and creates a link to the matching file.
+
+**How it works:**
+
+1. On startup, osc8wrap builds a file index in the background
+   - In git repositories: uses `git ls-files` for fast indexing
+   - Otherwise: walks the filesystem, skipping excluded directories
+2. When a path doesn't exist at the literal location, the index is consulted
+3. Files are matched by basename, then filtered by path suffix if the input contains `/`
+4. When multiple files match, the most recently modified file is selected
+
+**Examples:**
+
+| Input | Actual file | Result |
+| ----- | ----------- | ------ |
+| `main.go:10` | `src/main.go` | Links to `src/main.go` |
+| `to/file.go:5` | `path/to/file.go` | Links via suffix match |
+| `file.go:1` | `a/file.go`, `b/file.go` | Links to most recently modified |
+
+**Notes:**
+
+- Resolution only occurs when the literal path doesn't exist
+- If the index isn't ready yet, unresolved paths are left as plain text
+- Disable with `--no-resolve-basename` for faster startup on large codebases
 
 ### Editor schemes
 

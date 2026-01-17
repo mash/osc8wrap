@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLinker_Write(t *testing.T) {
@@ -333,5 +335,247 @@ func TestLinker_BareDomains(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestLinker_BasenameResolution(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testFile := filepath.Join(srcDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "basename only resolves via index",
+			input:    "error in main.go:10\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07main.go:10\x1b]8;;\x07\n",
+		},
+		{
+			name:     "relative path still works",
+			input:    "error in ./src/main.go:10\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07./src/main.go:10\x1b]8;;\x07\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinkerWithOptions(LinkerOptions{
+				Output:          &buf,
+				Cwd:             tmpDir,
+				Hostname:        hostname,
+				Scheme:          "file",
+				Domains:         []string{"github.com"},
+				ResolveBasename: true,
+				ExcludeDirs:     []string{},
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go linker.StartIndexer(ctx)
+			if err := linker.WaitForIndex(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := linker.Write([]byte(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLinker_SuffixMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	deepDir := filepath.Join(tmpDir, "path", "to")
+	if err := os.MkdirAll(deepDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testFile := filepath.Join(deepDir, "file.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	linker := NewLinkerWithOptions(LinkerOptions{
+		Output:          &buf,
+		Cwd:             tmpDir,
+		Hostname:        hostname,
+		Scheme:          "file",
+		Domains:         []string{"github.com"},
+		ResolveBasename: true,
+		ExcludeDirs:     []string{},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go linker.StartIndexer(ctx)
+	if err := linker.WaitForIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	input := "error in to/file.go:10\n"
+	expected := "error in \x1b]8;;file://testhost" + testFile + "\x07to/file.go:10\x1b]8;;\x07\n"
+
+	_, err := linker.Write([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestLinker_MtimePriority(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	dirA := filepath.Join(tmpDir, "a")
+	dirB := filepath.Join(tmpDir, "b")
+	if err := os.MkdirAll(dirA, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dirB, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldFile := filepath.Join(dirA, "file.go")
+	newFile := filepath.Join(dirB, "file.go")
+	if err := os.WriteFile(oldFile, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-1 * time.Hour)
+	if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newFile, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	linker := NewLinkerWithOptions(LinkerOptions{
+		Output:          &buf,
+		Cwd:             tmpDir,
+		Hostname:        hostname,
+		Scheme:          "file",
+		Domains:         []string{"github.com"},
+		ResolveBasename: true,
+		ExcludeDirs:     []string{},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go linker.StartIndexer(ctx)
+	if err := linker.WaitForIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	input := "error in file.go:10\n"
+	expected := "error in \x1b]8;;file://testhost" + newFile + "\x07file.go:10\x1b]8;;\x07\n"
+
+	_, err := linker.Write([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestLinker_IndexNotReady(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	linker := NewLinkerWithOptions(LinkerOptions{
+		Output:          &buf,
+		Cwd:             tmpDir,
+		Hostname:        hostname,
+		Scheme:          "file",
+		Domains:         []string{"github.com"},
+		ResolveBasename: true,
+		ExcludeDirs:     []string{},
+	})
+
+	input := "error in main.go:10\n"
+	expected := "error in main.go:10\n"
+
+	_, err := linker.Write([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestLinker_ResolveBasenameDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	linker := NewLinkerWithOptions(LinkerOptions{
+		Output:          &buf,
+		Cwd:             tmpDir,
+		Hostname:        hostname,
+		Scheme:          "file",
+		Domains:         []string{"github.com"},
+		ResolveBasename: false,
+		ExcludeDirs:     []string{},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go linker.StartIndexer(ctx)
+	if err := linker.WaitForIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	input := "error in main.go:10\n"
+	expected := "error in main.go:10\n"
+
+	_, err := linker.Write([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
 	}
 }

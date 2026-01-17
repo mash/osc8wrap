@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,15 +14,22 @@ import (
 	"golang.org/x/term"
 )
 
+var defaultExcludeDirs = []string{"vendor", "node_modules", ".git", "__pycache__", ".cache"}
+
 const usage = `Usage: osc8wrap [options] <command> [args...]
        <other command> | osc8wrap [options]
 
 Options:
-  --scheme=NAME   URL scheme for file links (default: file)
-                  Can also be set via OSC8WRAP_SCHEME env var
-                  Examples: file, vscode, cursor, zed
-  --domains=LIST  Comma-separated domains to linkify without https://
-                  (default: github.com, env: OSC8WRAP_DOMAINS)
+  --scheme=NAME           URL scheme for file links (default: file)
+                          Can also be set via OSC8WRAP_SCHEME env var
+                          Examples: file, vscode, cursor, zed
+  --domains=LIST          Comma-separated domains to linkify without https://
+                          (default: github.com, env: OSC8WRAP_DOMAINS)
+  --no-resolve-basename   Disable basename resolution (default: enabled)
+                          Can also be set via OSC8WRAP_NO_RESOLVE_BASENAME=1
+  --exclude-dir=DIR,...   Directories to exclude from search (replaces defaults)
+                          Default: vendor,node_modules,.git,__pycache__,.cache
+                          Can also be set via OSC8WRAP_EXCLUDE_DIRS
 
 Examples:
   osc8wrap go build ./...
@@ -34,12 +42,20 @@ func main() {
 }
 
 func run() int {
-	scheme, domains, cmdArgs := parseArgs(os.Args[1:])
+	opts, cmdArgs := parseArgs(os.Args[1:])
 
 	hostname, _ := os.Hostname()
 	cwd, _ := os.Getwd()
 
-	linker := NewLinker(os.Stdout, cwd, hostname, scheme, domains)
+	opts.Output = os.Stdout
+	opts.Cwd = cwd
+	opts.Hostname = hostname
+
+	linker := NewLinkerWithOptions(opts)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go linker.StartIndexer(ctx)
 
 	if len(cmdArgs) == 0 {
 		if term.IsTerminal(int(os.Stdin.Fd())) {
@@ -51,18 +67,27 @@ func run() int {
 	return runPTYMode(linker, cmdArgs)
 }
 
-func parseArgs(args []string) (scheme string, domains []string, cmdArgs []string) {
-	scheme = os.Getenv("OSC8WRAP_SCHEME")
-	domains = []string{"github.com"}
+func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
+	opts.Scheme = os.Getenv("OSC8WRAP_SCHEME")
+	opts.Domains = []string{"github.com"}
 	if env := os.Getenv("OSC8WRAP_DOMAINS"); env != "" {
-		domains = splitDomains(env)
+		opts.Domains = splitDomains(env)
+	}
+	opts.ResolveBasename = os.Getenv("OSC8WRAP_NO_RESOLVE_BASENAME") != "1"
+	opts.ExcludeDirs = defaultExcludeDirs
+	if env := os.Getenv("OSC8WRAP_EXCLUDE_DIRS"); env != "" {
+		opts.ExcludeDirs = splitDomains(env)
 	}
 
 	for i, arg := range args {
 		if v, ok := strings.CutPrefix(arg, "--scheme="); ok {
-			scheme = v
+			opts.Scheme = v
 		} else if v, ok := strings.CutPrefix(arg, "--domains="); ok {
-			domains = splitDomains(v)
+			opts.Domains = splitDomains(v)
+		} else if arg == "--no-resolve-basename" {
+			opts.ResolveBasename = false
+		} else if v, ok := strings.CutPrefix(arg, "--exclude-dir="); ok {
+			opts.ExcludeDirs = splitDomains(v)
 		} else if arg == "--" {
 			cmdArgs = args[i+1:]
 			return
