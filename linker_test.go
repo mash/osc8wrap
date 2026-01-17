@@ -223,6 +223,18 @@ func TestLinker_Schemes(t *testing.T) {
 			expected: "\x1b]8;;myeditor://file" + testFile + ":1\x07" + testFile + ":1\x1b]8;;\x07\n",
 		},
 		{
+			name:     "cursor scheme with range format converts to line:col",
+			scheme:   "cursor",
+			input:    testFile + ":12-12\n",
+			expected: "\x1b]8;;cursor://file" + testFile + ":12:1\x07" + testFile + ":12-12\x1b]8;;\x07\n",
+		},
+		{
+			name:     "cursor scheme with line range converts to start line",
+			scheme:   "cursor",
+			input:    testFile + ":12-24\n",
+			expected: "\x1b]8;;cursor://file" + testFile + ":12:1\x07" + testFile + ":12-24\x1b]8;;\x07\n",
+		},
+		{
 			name:     "empty scheme defaults to file",
 			scheme:   "",
 			input:    testFile + ":42\n",

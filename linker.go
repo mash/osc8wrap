@@ -21,7 +21,7 @@ var combinedPattern = regexp.MustCompile(
 		`|` +
 		`\w+file` + // files ending with "file" (Makefile, Dockerfile, etc.)
 		`)` +
-		`(:\d+(?::\d+)?)?`, // group 3: optional :line or :line:col
+		`(:\d+(?:[-:]\d+)?)?`, // group 3: optional :line, :line:col, or :line-line
 )
 
 var osc8Start = []byte("\x1b]8;;")
@@ -131,7 +131,19 @@ func (l *Linker) formatFileURL(absPath, locSuffix string) string {
 	if l.scheme == "file" {
 		return "file://" + l.hostname + absPath
 	}
-	return l.scheme + "://file" + absPath + locSuffix
+	return l.scheme + "://file" + absPath + normalizeLocSuffix(locSuffix)
+}
+
+func normalizeLocSuffix(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] == '-' {
+			return s[:i] + ":1"
+		}
+	}
+	return s
 }
 
 func (l *Linker) wrapURLWithOSC8(url []byte) []byte {
