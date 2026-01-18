@@ -2,3 +2,5 @@ docs/plans/
 osc8wrap
 .worktrees/
 dist/
+.env
+.envrc
