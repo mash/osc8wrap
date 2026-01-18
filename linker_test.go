@@ -646,3 +646,46 @@ func TestLinker_TildePath(t *testing.T) {
 		})
 	}
 }
+
+func TestLinker_FsnotifyNewFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	hostname := "testhost"
+
+	var buf bytes.Buffer
+	linker := NewLinkerWithOptions(LinkerOptions{
+		Output:          &buf,
+		Cwd:             tmpDir,
+		Hostname:        hostname,
+		Scheme:          "file",
+		Domains:         []string{"github.com"},
+		ResolveBasename: true,
+		ExcludeDirs:     []string{},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go linker.StartIndexer(ctx)
+	if err := linker.WaitForIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := filepath.Join(tmpDir, "newfile.go")
+	if err := os.WriteFile(newFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	input := "error in newfile.go:10\n"
+	expected := "error in \x1b]8;;file://testhost" + newFile + "\x07newfile.go:10\x1b]8;;\x07\n"
+
+	_, err := linker.Write([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
