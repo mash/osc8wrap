@@ -20,6 +20,10 @@ func TestLinker_Write(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	testFile, _ = filepath.EvalSymlinks(testFile)
+	makefile, _ = filepath.EvalSymlinks(makefile)
+
 	hostname := "testhost"
 
 	tests := []struct {
@@ -185,6 +189,8 @@ func TestLinker_Schemes(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	testFile, _ = filepath.EvalSymlinks(testFile)
 
 	hostname := "testhost"
 
@@ -350,6 +356,8 @@ func TestLinker_BasenameResolution(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	testFile, _ = filepath.EvalSymlinks(testFile)
 
 	tests := []struct {
 		name     string
@@ -577,5 +585,64 @@ func TestLinker_ResolveBasenameDisabled(t *testing.T) {
 
 	if got := buf.String(); got != expected {
 		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestLinker_TildePath(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testDir := filepath.Join(homeDir, ".osc8wrap-test")
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(testDir)
+
+	testFile := filepath.Join(testDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	hostname := "testhost"
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "tilde path basic",
+			input:    "error in ~/.osc8wrap-test/test.go\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07~/.osc8wrap-test/test.go\x1b]8;;\x07\n",
+		},
+		{
+			name:     "tilde path with line number",
+			input:    "error in ~/.osc8wrap-test/test.go:42\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07~/.osc8wrap-test/test.go:42\x1b]8;;\x07\n",
+		},
+		{
+			name:     "non-existent tilde path not linked",
+			input:    "error in ~/.osc8wrap-test/nonexistent.go:10\n",
+			expected: "error in ~/.osc8wrap-test/nonexistent.go:10\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
+
+			_, err := linker.Write([]byte(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
 	}
 }

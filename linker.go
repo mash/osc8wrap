@@ -105,7 +105,7 @@ func (l *Linker) buildPattern() *regexp.Regexp {
 	pattern += `|` +
 		`(?:^|[^/\w.-]|\x1b\[[0-9;]*m)` + // boundary: start of line, non-path char, or ANSI SGR
 		`(` + // group 3: path
-		`\.{0,2}/[\w./-]+(?:\.\w+)?` + // starts with /, ./, or ../: extension optional
+		`(?:~|\.{0,2})/[\w./-]+(?:\.\w+)?` + // starts with ~/, /, ./, or ../: extension optional
 		`|` +
 		`[\w./-]+\.\w+` + // no path prefix: extension required
 		`|` +
@@ -181,10 +181,24 @@ func (l *Linker) convertLine(data []byte) []byte {
 }
 
 func (l *Linker) resolvePath(path string) string {
-	if filepath.IsAbs(path) {
-		return path
+	var absPath string
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		absPath = filepath.Join(home, path[2:])
+	} else if filepath.IsAbs(path) {
+		absPath = path
+	} else {
+		absPath = filepath.Join(l.cwd, path)
 	}
-	return filepath.Join(l.cwd, path)
+
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return absPath
+	}
+	return resolved
 }
 
 func (l *Linker) fileExists(path string) bool {
