@@ -147,7 +147,7 @@ func (l *Linker) convertLine(data []byte) []byte {
 			return match
 		}
 
-		if !l.fileExists(absPath) {
+		if !l.pathExists(absPath) {
 			if !l.resolveBasename {
 				return match
 			}
@@ -185,12 +185,12 @@ func (l *Linker) resolvePath(path string) string {
 	return resolved
 }
 
-func (l *Linker) fileExists(path string) bool {
+func (l *Linker) pathExists(path string) bool {
 	if exists, ok := l.fileCache[path]; ok {
 		return exists
 	}
-	info, err := os.Stat(path)
-	exists := err == nil && !info.IsDir()
+	_, err := os.Stat(path)
+	exists := err == nil
 	l.fileCache[path] = exists
 	return exists
 }

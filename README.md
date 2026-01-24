@@ -81,7 +81,7 @@ cat build.log | osc8wrap --scheme=vscode
 | *file names          | `Makefile`, `Dockerfile`   |
 | HTTPS URL            | `https://example.com/docs` |
 
-File paths are only linked if the file exists. Extensionless files are supported when they have a path prefix (`/`, `./`, `../`) or end with `file` (e.g., Makefile, Dockerfile, Gemfile).
+Paths are only linked if they exist (files or directories). Extensionless files are supported when they have a path prefix (`/`, `./`, `../`) or end with `file` (e.g., Makefile, Dockerfile, Gemfile).
 
 ### Basename resolution
 
