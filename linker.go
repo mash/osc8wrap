@@ -129,59 +129,73 @@ func (l *Linker) convertLine(data []byte) []byte {
 		return data
 	}
 
-	result := l.urlPattern.ReplaceAllFunc(data, func(match []byte) []byte {
-		submatch := l.urlPattern.FindSubmatch(match)
-		if submatch == nil {
-			return match
+	matches := l.urlPattern.FindAllSubmatchIndex(data, -1)
+	if len(matches) == 0 {
+		if l.symbolLinks {
+			return l.convertSymbols(data)
+		}
+		return data
+	}
+
+	var result bytes.Buffer
+	last := 0
+	for _, m := range matches {
+		fullStart, fullEnd := m[0], m[1]
+		if fullStart > last {
+			result.Write(data[last:fullStart])
 		}
 
 		// group 1: https URL
-		if len(submatch[1]) > 0 {
-			return l.wrapURLWithOSC8(submatch[1])
+		if start, end, ok := submatch(m, 1); ok {
+			result.Write(l.wrapURL(data[start:end]))
+			last = fullEnd
+			continue
 		}
 
 		// group 2: bare domain URL
-		if len(submatch[2]) > 0 {
-			fullMatch := submatch[0]
-			domainPart := submatch[2]
-			prefix := fullMatch[:bytes.Index(fullMatch, domainPart)]
-			return l.wrapBareDomainWithOSC8(prefix, domainPart)
+		if start, end, ok := submatch(m, 2); ok {
+			prefix := data[fullStart:start]
+			domainPart := data[start:end]
+			result.Write(l.wrapBareDomain(prefix, domainPart))
+			last = fullEnd
+			continue
 		}
 
-		fullMatch := submatch[0]
-		pathPart := submatch[3]  // group 3: path
-		locSuffix := submatch[4] // group 4: loc suffix
-
-		if len(pathPart) == 0 {
-			return match
+		// group 3: file path
+		pathStart, pathEnd, ok := submatch(m, 3)
+		if !ok {
+			result.Write(data[fullStart:fullEnd])
+			last = fullEnd
+			continue
 		}
 
-		absPath := l.resolvePath(string(pathPart))
-		if absPath == "" {
-			return match
+		pathPart := data[pathStart:pathEnd]
+		var locSuffix []byte
+		if start, end, ok := submatch(m, 4); ok {
+			locSuffix = data[start:end]
 		}
 
-		if !l.pathExists(absPath) {
-			if !l.resolveBasename {
-				return match
-			}
-			absPath = l.index.Resolve(string(pathPart))
-			if absPath == "" {
-				return match
-			}
-		}
-
-		prefix := fullMatch[:bytes.Index(fullMatch, pathPart)]
+		prefix := data[fullStart:pathStart]
 		displayText := append(pathPart, locSuffix...)
 
-		return l.wrapFileWithOSC8(prefix, absPath, string(locSuffix), displayText)
-	})
-
-	if l.symbolLinks {
-		result = l.convertSymbols(result)
+		if replacement, ok := l.wrapFilePath(prefix, pathPart, locSuffix, displayText); ok {
+			result.Write(replacement)
+		} else {
+			result.Write(data[fullStart:fullEnd])
+		}
+		last = fullEnd
 	}
 
-	return result
+	if last < len(data) {
+		result.Write(data[last:])
+	}
+
+	output := result.Bytes()
+	if l.symbolLinks {
+		output = l.convertSymbols(output)
+	}
+
+	return output
 }
 
 func (l *Linker) resolvePath(path string) string {
@@ -222,7 +236,7 @@ func (l *Linker) st() string {
 	return "\x1b\\"
 }
 
-func (l *Linker) wrapFileWithOSC8(prefix []byte, absPath, locSuffix string, displayText []byte) []byte {
+func (l *Linker) wrapFile(prefix []byte, absPath, locSuffix string, displayText []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;")
@@ -253,7 +267,7 @@ func normalizeLocSuffix(s string) string {
 	return s
 }
 
-func (l *Linker) wrapURLWithOSC8(url []byte) []byte {
+func (l *Linker) wrapURL(url []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("\x1b]8;;")
 	buf.Write(url)
@@ -264,7 +278,7 @@ func (l *Linker) wrapURLWithOSC8(url []byte) []byte {
 	return buf.Bytes()
 }
 
-func (l *Linker) wrapBareDomainWithOSC8(prefix, domain []byte) []byte {
+func (l *Linker) wrapBareDomain(prefix, domain []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;https://")
@@ -274,6 +288,25 @@ func (l *Linker) wrapBareDomainWithOSC8(prefix, domain []byte) []byte {
 	buf.WriteString("\x1b]8;;")
 	buf.WriteString(l.st())
 	return buf.Bytes()
+}
+
+func (l *Linker) wrapFilePath(prefix, pathPart, locSuffix, displayText []byte) ([]byte, bool) {
+	absPath := l.resolvePath(string(pathPart))
+	if absPath == "" {
+		return nil, false
+	}
+
+	if !l.pathExists(absPath) {
+		if !l.resolveBasename {
+			return nil, false
+		}
+		absPath = l.index.Resolve(string(pathPart))
+		if absPath == "" {
+			return nil, false
+		}
+	}
+
+	return l.wrapFile(prefix, absPath, string(locSuffix), displayText), true
 }
 
 func (l *Linker) StartIndexer(ctx context.Context) {
@@ -319,8 +352,10 @@ var disallowedEscapePattern = regexp.MustCompile(`` +
 )
 
 func (l *Linker) convertSymbols(data []byte) []byte {
-	if disallowedEscapePattern.Match(data) {
-		return data
+	if bytes.IndexByte(data, 0x1b) != -1 {
+		if disallowedEscapePattern.Match(data) {
+			return data
+		}
 	}
 
 	var result bytes.Buffer
@@ -353,21 +388,55 @@ func (l *Linker) convertSymbols(data []byte) []byte {
 }
 
 func (l *Linker) replaceSymbols(data []byte) []byte {
-	return l.symbolPattern.ReplaceAllFunc(data, func(match []byte) []byte {
-		submatch := l.symbolPattern.FindSubmatch(match)
-		if submatch == nil {
-			return match
+	matches := l.symbolPattern.FindAllSubmatchIndex(data, -1)
+	if len(matches) == 0 {
+		return data
+	}
+
+	var result bytes.Buffer
+	last := 0
+	for _, m := range matches {
+		fullStart, fullEnd := m[0], m[1]
+		if fullStart > last {
+			result.Write(data[last:fullStart])
 		}
 
-		symbolName := submatch[1]
-		hasParens := len(submatch[2]) > 0
+		symbolStart, symbolEnd, ok := submatch(m, 1)
+		if !ok {
+			result.Write(data[fullStart:fullEnd])
+			last = fullEnd
+			continue
+		}
 
-		prefix := match[:bytes.Index(match, symbolName)]
-		return l.wrapSymbolWithOSC8(prefix, symbolName, hasParens)
-	})
+		prefix := data[fullStart:symbolStart]
+		symbolName := data[symbolStart:symbolEnd]
+		_, _, hasParens := submatch(m, 2)
+		result.Write(l.wrapSymbol(prefix, symbolName, hasParens))
+		last = fullEnd
+	}
+
+	if last < len(data) {
+		result.Write(data[last:])
+	}
+
+	return result.Bytes()
 }
 
-func (l *Linker) wrapSymbolWithOSC8(prefix, symbol []byte, isFunction bool) []byte {
+func submatch(match []int, group int) (start, end int, ok bool) {
+	// submatch indices are 2 slots per group: [start, end].
+	idx := group * 2
+	if idx+1 >= len(match) {
+		return 0, 0, false
+	}
+	start, end = match[idx], match[idx+1]
+	// Treat empty or missing groups as not present.
+	if start == -1 || end == -1 || start == end {
+		return start, end, false
+	}
+	return start, end, true
+}
+
+func (l *Linker) wrapSymbol(prefix, symbol []byte, isFunction bool) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;")
