@@ -28,6 +28,7 @@ osc8wrap [options] <command> [args...]
 - `--domains=LIST` - Comma-separated domains to linkify without `https://` (default: `github.com`)
 - `--no-resolve-basename` - Disable basename resolution (default: enabled)
 - `--exclude-dir=DIR,...` - Directories to exclude from basename search (default: `vendor,node_modules,.git,__pycache__,.cache`)
+- `--no-symbol-links` - Disable symbol linking (default: enabled when scheme != `file`)
 
 Options can also be set via environment variables. CLI flags take precedence.
 
@@ -38,6 +39,7 @@ Options can also be set via environment variables. CLI flags take precedence.
 | `--domains` | `OSC8WRAP_DOMAINS` |
 | `--no-resolve-basename` | `OSC8WRAP_NO_RESOLVE_BASENAME=1` |
 | `--exclude-dir` | `OSC8WRAP_EXCLUDE_DIRS` |
+| `--no-symbol-links` | `OSC8WRAP_NO_SYMBOL_LINKS=1` |
 
 ### Examples
 
@@ -124,6 +126,32 @@ By default, file links use the `file://` scheme. To open files directly in your 
 | zed      | `zed://file/path:line:col`          |
 
 Any scheme name is accepted and will be formatted as `{scheme}://file{path}:{line}:{col}`.
+
+### Symbol links
+
+When using an editor scheme (not `file`), osc8wrap also detects symbol names (function names, type names, etc.) and converts them to clickable links that open the symbol definition in your editor.
+
+**How it works:**
+
+- Detects PascalCase identifiers (e.g., `NewLinker`, `HTTPClient`)
+- Detects camelCase identifiers (e.g., `getUserName`, `parseJSON`)
+- Minimum 3 characters to reduce noise
+- Links to `{scheme}://mash.symbol-opener?symbol=NAME&cwd=CWD`
+- If followed by `()`, adds `&kind=Function` to the URL
+
+**Requirements:**
+
+- Install the [symbol-opener](https://github.com/mash/symbol-opener) VS Code/Cursor extension
+- The extension uses LSP to resolve symbol definitions
+
+**Example:**
+
+```
+$ echo "undefined: NewLinker" | osc8wrap --scheme=cursor
+undefined: NewLinker  # "NewLinker" is now a clickable link
+```
+
+Disable with `--no-symbol-links` if you don't need this feature.
 
 ## Terminal support
 

@@ -21,6 +21,7 @@ type LinkerOptions struct {
 	ResolveBasename bool
 	ExcludeDirs     []string
 	Terminator      string // "st" (default, ESC \) or "bel" (0x07)
+	SymbolLinks     bool
 }
 
 type Linker struct {
@@ -35,6 +36,8 @@ type Linker struct {
 	excludeDirs     []string
 	index           *FileIndex
 	terminator      string
+	symbolLinks     bool
+	symbolPattern   *regexp.Regexp
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
@@ -68,8 +71,12 @@ func NewLinkerWithOptions(opts LinkerOptions) *Linker {
 		excludeDirs:     opts.ExcludeDirs,
 		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs),
 		terminator:      terminator,
+		symbolLinks:     opts.SymbolLinks,
 	}
 	l.urlPattern = l.buildPattern()
+	if l.symbolLinks {
+		l.symbolPattern = l.buildSymbolPattern()
+	}
 	return l
 }
 
@@ -122,7 +129,7 @@ func (l *Linker) convertLine(data []byte) []byte {
 		return data
 	}
 
-	return l.urlPattern.ReplaceAllFunc(data, func(match []byte) []byte {
+	result := l.urlPattern.ReplaceAllFunc(data, func(match []byte) []byte {
 		submatch := l.urlPattern.FindSubmatch(match)
 		if submatch == nil {
 			return match
@@ -169,6 +176,12 @@ func (l *Linker) convertLine(data []byte) []byte {
 
 		return l.wrapFileWithOSC8(prefix, absPath, string(locSuffix), displayText)
 	})
+
+	if l.symbolLinks {
+		result = l.convertSymbols(result)
+	}
+
+	return result
 }
 
 func (l *Linker) resolvePath(path string) string {
@@ -275,4 +288,103 @@ func (l *Linker) WaitForIndex(ctx context.Context) error {
 		return nil
 	}
 	return l.index.Wait(ctx)
+}
+
+func (l *Linker) buildSymbolPattern() *regexp.Regexp {
+	// symbol pattern: matches PascalCase or camelCase identifiers
+	pattern := `` +
+		`(?:^|[^\w]|\x1b\[[0-9;]*m)` + // boundary: start, non-word char, or ANSI SGR
+		`(` + // group 1: symbol name
+		`[A-Z][a-zA-Z0-9]*[a-z][a-zA-Z0-9]*` + // PascalCase: requires lowercase to exclude ALL_CAPS
+		`|` +
+		`[a-z][a-z0-9]*[A-Z][a-zA-Z0-9]*` + // camelCase: requires uppercase to exclude lowercase words
+		`)` +
+		`(\(\))?` // group 2: optional () to distinguish function calls
+
+	return regexp.MustCompile(pattern)
+}
+
+// disallowedEscapePattern matches escape sequences that should skip symbol linking.
+// Only SGR (\x1b[...m) and OSC8 (\x1b]8;;) are allowed to overlap with symbol linking.
+var disallowedEscapePattern = regexp.MustCompile(`` +
+	// CSI not ending with 'm': cursor control, screen manipulation, etc.
+	// Final byte 'm' (0x6D) is excluded to allow SGR sequences
+	`\x1b\[[0-9;?<>=]*[@A-Za-lo-z\[\]^_` + "`" + `{|}~\\]` +
+	`|` +
+	// OSC 0-7 and 9: window title, clipboard, notifications, etc.
+	`\x1b\][0-79]` +
+	`|` +
+	// DCS (\x1bP), APC (\x1b_), PM (\x1b^): device control strings
+	`\x1b[P_^]`,
+)
+
+func (l *Linker) convertSymbols(data []byte) []byte {
+	if disallowedEscapePattern.Match(data) {
+		return data
+	}
+
+	var result bytes.Buffer
+	remaining := data
+
+	for len(remaining) > 0 {
+		startIdx := bytes.Index(remaining, osc8Start)
+		if startIdx == -1 {
+			result.Write(l.replaceSymbols(remaining))
+			break
+		}
+
+		result.Write(l.replaceSymbols(remaining[:startIdx]))
+
+		endIdx := bytes.Index(remaining[startIdx:], []byte("\x1b]8;;\x1b\\"))
+		if endIdx == -1 {
+			endIdx = bytes.Index(remaining[startIdx:], []byte("\x1b]8;;\x07"))
+		}
+		if endIdx == -1 {
+			result.Write(remaining[startIdx:])
+			break
+		}
+
+		linkEnd := startIdx + endIdx + len("\x1b]8;;\x1b\\")
+		result.Write(remaining[startIdx:linkEnd])
+		remaining = remaining[linkEnd:]
+	}
+
+	return result.Bytes()
+}
+
+func (l *Linker) replaceSymbols(data []byte) []byte {
+	return l.symbolPattern.ReplaceAllFunc(data, func(match []byte) []byte {
+		submatch := l.symbolPattern.FindSubmatch(match)
+		if submatch == nil {
+			return match
+		}
+
+		symbolName := submatch[1]
+		hasParens := len(submatch[2]) > 0
+
+		prefix := match[:bytes.Index(match, symbolName)]
+		return l.wrapSymbolWithOSC8(prefix, symbolName, hasParens)
+	})
+}
+
+func (l *Linker) wrapSymbolWithOSC8(prefix, symbol []byte, isFunction bool) []byte {
+	var buf bytes.Buffer
+	buf.Write(prefix)
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.scheme)
+	buf.WriteString("://mash.symbol-opener?symbol=")
+	buf.Write(symbol)
+	buf.WriteString("&cwd=")
+	buf.WriteString(l.cwd)
+	if isFunction {
+		buf.WriteString("&kind=Function")
+	}
+	buf.WriteString(l.st())
+	buf.Write(symbol)
+	if isFunction {
+		buf.WriteString("()")
+	}
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.st())
+	return buf.Bytes()
 }

@@ -747,3 +747,163 @@ func TestLinker_Terminator(t *testing.T) {
 		})
 	}
 }
+
+func TestLinker_SymbolLinks(t *testing.T) {
+	tmpDir := t.TempDir()
+	hostname := "testhost"
+
+	tests := []struct {
+		name        string
+		input       string
+		symbolLinks bool
+		expected    string
+	}{
+		{
+			name:        "PascalCase symbol",
+			input:       "undefined: NewLinker\n",
+			symbolLinks: true,
+			expected:    "undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:        "camelCase symbol",
+			input:       "undefined: getUserName\n",
+			symbolLinks: true,
+			expected:    "undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=getUserName&cwd=" + tmpDir + "\x1b\\getUserName\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:        "function call with parens",
+			input:       "undefined: NewLinker()\n",
+			symbolLinks: true,
+			expected:    "undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "&kind=Function\x1b\\NewLinker()\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:        "multiple symbols",
+			input:       "NewLinker calls GetUser\n",
+			symbolLinks: true,
+			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\ calls \x1b]8;;cursor://mash.symbol-opener?symbol=GetUser&cwd=" + tmpDir + "\x1b\\GetUser\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:        "short identifiers not linked",
+			input:       "ID and DB are too short\n",
+			symbolLinks: true,
+			expected:    "ID and DB are too short\n",
+		},
+		{
+			name:        "lowercase words not linked",
+			input:       "error in function\n",
+			symbolLinks: true,
+			expected:    "error in function\n",
+		},
+		{
+			name:        "symbol links disabled",
+			input:       "undefined: NewLinker\n",
+			symbolLinks: false,
+			expected:    "undefined: NewLinker\n",
+		},
+		{
+			name:        "cursor control sequences skip symbol linking",
+			input:       "\x1b[sStatus Line Display\x1b[u",
+			symbolLinks: true,
+			expected:    "\x1b[sStatus Line Display\x1b[u",
+		},
+		{
+			name:        "symbol with ANSI color",
+			input:       "\x1b[31mNewLinker\x1b[0m\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\x1b[0m\n",
+		},
+		{
+			name:        "ALL_CAPS not linked",
+			input:       "ERROR and HTTP_STATUS\n",
+			symbolLinks: true,
+			expected:    "ERROR and HTTP_STATUS\n",
+		},
+		{
+			name:        "snake_case not linked",
+			input:       "get_user_name\n",
+			symbolLinks: true,
+			expected:    "get_user_name\n",
+		},
+		{
+			name:        "symbol with numbers",
+			input:       "Handler2 and V2Client\n",
+			symbolLinks: true,
+			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=Handler2&cwd=" + tmpDir + "\x1b\\Handler2\x1b]8;;\x1b\\ and \x1b]8;;cursor://mash.symbol-opener?symbol=V2Client&cwd=" + tmpDir + "\x1b\\V2Client\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:        "symbol in parentheses",
+			input:       "(NewLinker)\n",
+			symbolLinks: true,
+			expected:    "(\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\)\n",
+		},
+		{
+			name:        "function with args does not have kind",
+			input:       "NewLinker(arg)\n",
+			symbolLinks: true,
+			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\(arg)\n",
+		},
+		{
+			name:        "acronym in PascalCase",
+			input:       "HTTPClient and XMLParser\n",
+			symbolLinks: true,
+			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=HTTPClient&cwd=" + tmpDir + "\x1b\\HTTPClient\x1b]8;;\x1b\\ and \x1b]8;;cursor://mash.symbol-opener?symbol=XMLParser&cwd=" + tmpDir + "\x1b\\XMLParser\x1b]8;;\x1b\\\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinkerWithOptions(LinkerOptions{
+				Output:      &buf,
+				Cwd:         tmpDir,
+				Hostname:    hostname,
+				Scheme:      "cursor",
+				Domains:     []string{"github.com"},
+				SymbolLinks: tt.symbolLinks,
+			})
+
+			_, err := linker.Write([]byte(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLinker_SymbolLinksWithFilePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	testFile, _ = filepath.EvalSymlinks(testFile)
+
+	hostname := "testhost"
+
+	var buf bytes.Buffer
+	linker := NewLinkerWithOptions(LinkerOptions{
+		Output:      &buf,
+		Cwd:         tmpDir,
+		Hostname:    hostname,
+		Scheme:      "cursor",
+		Domains:     []string{"github.com"},
+		SymbolLinks: true,
+	})
+
+	input := testFile + ":10: undefined: NewLinker\n"
+	expected := "\x1b]8;;cursor://file" + testFile + ":10\x1b\\" + testFile + ":10\x1b]8;;\x1b\\: undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\n"
+
+	_, err := linker.Write([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}

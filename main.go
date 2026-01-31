@@ -34,6 +34,8 @@ Options:
   --exclude-dir=DIR,...   Directories to exclude from search (replaces defaults)
                           Default: vendor,node_modules,.git,__pycache__,.cache
                           Can also be set via OSC8WRAP_EXCLUDE_DIRS
+  --no-symbol-links       Disable symbol linking (default: enabled when scheme != file)
+                          Can also be set via OSC8WRAP_NO_SYMBOL_LINKS=1
 
 Examples:
   osc8wrap go build ./...
@@ -83,6 +85,7 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 	if env := os.Getenv("OSC8WRAP_EXCLUDE_DIRS"); env != "" {
 		opts.ExcludeDirs = splitDomains(env)
 	}
+	noSymbolLinks := os.Getenv("OSC8WRAP_NO_SYMBOL_LINKS") == "1"
 
 	for i, arg := range args {
 		if v, ok := strings.CutPrefix(arg, "--scheme="); ok {
@@ -95,18 +98,27 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 			opts.ResolveBasename = false
 		} else if v, ok := strings.CutPrefix(arg, "--exclude-dir="); ok {
 			opts.ExcludeDirs = splitDomains(v)
+		} else if arg == "--no-symbol-links" {
+			noSymbolLinks = true
 		} else if arg == "--" {
 			cmdArgs = args[i+1:]
-			return
+			break
 		} else if strings.HasPrefix(arg, "-") {
 			fmt.Fprintf(os.Stderr, "unknown option: %s\n", arg)
 			fmt.Fprint(os.Stderr, usage)
 			os.Exit(1)
 		} else {
 			cmdArgs = args[i:]
-			return
+			break
 		}
 	}
+
+	scheme := opts.Scheme
+	if scheme == "" {
+		scheme = "file"
+	}
+	opts.SymbolLinks = scheme != "file" && !noSymbolLinks
+
 	return
 }
 
