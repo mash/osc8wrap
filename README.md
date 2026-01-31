@@ -24,6 +24,7 @@ osc8wrap [options] <command> [args...]
 ### Options
 
 - `--scheme=NAME` - URL scheme for file links (default: `file`)
+- `--terminator=TYPE` - OSC8 string terminator: `st` for ESC \ (default, ECMA-48), `bel` for BEL 0x07 (legacy xterm)
 - `--domains=LIST` - Comma-separated domains to linkify without `https://` (default: `github.com`)
 - `--no-resolve-basename` - Disable basename resolution (default: enabled)
 - `--exclude-dir=DIR,...` - Directories to exclude from basename search (default: `vendor,node_modules,.git,__pycache__,.cache`)
@@ -33,6 +34,7 @@ Options can also be set via environment variables. CLI flags take precedence.
 | Flag | Environment Variable |
 | ---- | -------------------- |
 | `--scheme` | `OSC8WRAP_SCHEME` |
+| `--terminator` | `OSC8WRAP_TERMINATOR` |
 | `--domains` | `OSC8WRAP_DOMAINS` |
 | `--no-resolve-basename` | `OSC8WRAP_NO_RESOLVE_BASENAME=1` |
 | `--exclude-dir` | `OSC8WRAP_EXCLUDE_DIRS` |
