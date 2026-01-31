@@ -128,6 +128,24 @@ func TestLinker_Write(t *testing.T) {
 			cwd:      tmpDir,
 			expected: "edit UNKNOWN please\n",
 		},
+		{
+			name:     "git diff a/ prefix stripped",
+			input:    "--- a/test.go\n",
+			cwd:      tmpDir,
+			expected: "--- \x1b]8;;file://testhost" + testFile + "\x1b\\a/test.go\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "git diff b/ prefix stripped",
+			input:    "+++ b/test.go\n",
+			cwd:      tmpDir,
+			expected: "+++ \x1b]8;;file://testhost" + testFile + "\x1b\\b/test.go\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "non-existent git diff path not linked",
+			input:    "--- a/nonexistent.go\n",
+			cwd:      tmpDir,
+			expected: "--- a/nonexistent.go\n",
+		},
 	}
 
 	for _, tt := range tests {

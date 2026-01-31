@@ -291,22 +291,40 @@ func (l *Linker) wrapBareDomain(prefix, domain []byte) []byte {
 }
 
 func (l *Linker) wrapFilePath(prefix, pathPart, locSuffix, displayText []byte) ([]byte, bool) {
-	absPath := l.resolvePath(string(pathPart))
+	pathStr := string(pathPart)
+	absPath := l.resolvePath(pathStr)
 	if absPath == "" {
 		return nil, false
 	}
 
-	if !l.pathExists(absPath) {
-		if !l.resolveBasename {
-			return nil, false
-		}
-		absPath = l.index.Resolve(string(pathPart))
-		if absPath == "" {
-			return nil, false
+	if l.pathExists(absPath) {
+		return l.wrapFile(prefix, absPath, string(locSuffix), displayText), true
+	}
+
+	// Try stripping git diff a/ or b/ prefix
+	if stripped, ok := stripGitDiffPrefix(pathStr); ok {
+		strippedAbs := l.resolvePath(stripped)
+		if strippedAbs != "" && l.pathExists(strippedAbs) {
+			return l.wrapFile(prefix, strippedAbs, string(locSuffix), displayText), true
 		}
 	}
 
+	if !l.resolveBasename {
+		return nil, false
+	}
+	absPath = l.index.Resolve(pathStr)
+	if absPath == "" {
+		return nil, false
+	}
 	return l.wrapFile(prefix, absPath, string(locSuffix), displayText), true
+}
+
+// stripGitDiffPrefix removes the "a/" or "b/" prefix that git diff adds to file paths.
+func stripGitDiffPrefix(path string) (string, bool) {
+	if len(path) > 2 && (path[0] == 'a' || path[0] == 'b') && path[1] == '/' {
+		return path[2:], true
+	}
+	return "", false
 }
 
 func (l *Linker) StartIndexer(ctx context.Context) {
