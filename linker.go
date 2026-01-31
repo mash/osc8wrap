@@ -20,6 +20,7 @@ type LinkerOptions struct {
 	Domains         []string
 	ResolveBasename bool
 	ExcludeDirs     []string
+	Terminator      string // "st" (default, ESC \) or "bel" (0x07)
 }
 
 type Linker struct {
@@ -33,6 +34,7 @@ type Linker struct {
 	resolveBasename bool
 	excludeDirs     []string
 	index           *FileIndex
+	terminator      string
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
@@ -51,6 +53,10 @@ func NewLinkerWithOptions(opts LinkerOptions) *Linker {
 	if scheme == "" {
 		scheme = "file"
 	}
+	terminator := opts.Terminator
+	if terminator == "" {
+		terminator = "st"
+	}
 	l := &Linker{
 		output:          opts.Output,
 		cwd:             opts.Cwd,
@@ -61,6 +67,7 @@ func NewLinkerWithOptions(opts LinkerOptions) *Linker {
 		resolveBasename: opts.ResolveBasename,
 		excludeDirs:     opts.ExcludeDirs,
 		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs),
+		terminator:      terminator,
 	}
 	l.urlPattern = l.buildPattern()
 	return l
@@ -195,14 +202,22 @@ func (l *Linker) pathExists(path string) bool {
 	return exists
 }
 
+func (l *Linker) st() string {
+	if l.terminator == "bel" {
+		return "\x07"
+	}
+	return "\x1b\\"
+}
+
 func (l *Linker) wrapFileWithOSC8(prefix []byte, absPath, locSuffix string, displayText []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;")
 	buf.WriteString(l.formatFileURL(absPath, locSuffix))
-	buf.WriteByte('\x07')
+	buf.WriteString(l.st())
 	buf.Write(displayText)
-	buf.WriteString("\x1b]8;;\x07")
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.st())
 	return buf.Bytes()
 }
 
@@ -229,9 +244,10 @@ func (l *Linker) wrapURLWithOSC8(url []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("\x1b]8;;")
 	buf.Write(url)
-	buf.WriteByte('\x07')
+	buf.WriteString(l.st())
 	buf.Write(url)
-	buf.WriteString("\x1b]8;;\x07")
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.st())
 	return buf.Bytes()
 }
 
@@ -240,9 +256,10 @@ func (l *Linker) wrapBareDomainWithOSC8(prefix, domain []byte) []byte {
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;https://")
 	buf.Write(domain)
-	buf.WriteByte('\x07')
+	buf.WriteString(l.st())
 	buf.Write(domain)
-	buf.WriteString("\x1b]8;;\x07")
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.st())
 	return buf.Bytes()
 }
 

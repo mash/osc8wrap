@@ -23,6 +23,10 @@ Options:
   --scheme=NAME           URL scheme for file links (default: file)
                           Can also be set via OSC8WRAP_SCHEME env var
                           Examples: file, vscode, cursor, zed
+  --terminator=TYPE       OSC8 string terminator (default: st)
+                          Can also be set via OSC8WRAP_TERMINATOR env var
+                          st: ESC \ (ECMA-48 standard)
+                          bel: BEL 0x07 (legacy xterm)
   --domains=LIST          Comma-separated domains to linkify without https://
                           (default: github.com, env: OSC8WRAP_DOMAINS)
   --no-resolve-basename   Disable basename resolution (default: enabled)
@@ -69,6 +73,7 @@ func run() int {
 
 func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 	opts.Scheme = os.Getenv("OSC8WRAP_SCHEME")
+	opts.Terminator = os.Getenv("OSC8WRAP_TERMINATOR")
 	opts.Domains = []string{"github.com"}
 	if env := os.Getenv("OSC8WRAP_DOMAINS"); env != "" {
 		opts.Domains = splitDomains(env)
@@ -82,6 +87,8 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 	for i, arg := range args {
 		if v, ok := strings.CutPrefix(arg, "--scheme="); ok {
 			opts.Scheme = v
+		} else if v, ok := strings.CutPrefix(arg, "--terminator="); ok {
+			opts.Terminator = v
 		} else if v, ok := strings.CutPrefix(arg, "--domains="); ok {
 			opts.Domains = splitDomains(v)
 		} else if arg == "--no-resolve-basename" {

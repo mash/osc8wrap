@@ -36,25 +36,25 @@ func TestLinker_Write(t *testing.T) {
 			name:     "absolute path",
 			input:    "error in " + testFile + "\n",
 			cwd:      tmpDir,
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "absolute path with line number",
 			input:    "error in " + testFile + ":42\n",
 			cwd:      tmpDir,
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07" + testFile + ":42\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + ":42\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "absolute path with line and column",
 			input:    "error in " + testFile + ":42:10\n",
 			cwd:      tmpDir,
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07" + testFile + ":42:10\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + ":42:10\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "relative path",
 			input:    "error in ./test.go:10\n",
 			cwd:      tmpDir,
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07./test.go:10\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\./test.go:10\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "non-existent file not linked",
@@ -66,7 +66,7 @@ func TestLinker_Write(t *testing.T) {
 			name:     "multiple paths on same line",
 			input:    testFile + " and " + testFile + "\n",
 			cwd:      tmpDir,
-			expected: "\x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07 and \x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07\n",
+			expected: "\x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\ and \x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "no paths",
@@ -78,49 +78,49 @@ func TestLinker_Write(t *testing.T) {
 			name:     "colored path with ANSI escape",
 			input:    "file: \x1b[32m" + testFile + "\x1b[0m\n",
 			cwd:      tmpDir,
-			expected: "file: \x1b[32m\x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07\x1b[0m\n",
+			expected: "file: \x1b[32m\x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:     "already has OSC-8 link",
-			input:    "file: \x1b]8;;file://testhost" + testFile + "\x07test.go\x1b]8;;\x07\n",
+			input:    "file: \x1b]8;;file://testhost" + testFile + "\x1b\\test.go\x1b]8;;\x1b\\\n",
 			cwd:      tmpDir,
-			expected: "file: \x1b]8;;file://testhost" + testFile + "\x07test.go\x1b]8;;\x07\n",
+			expected: "file: \x1b]8;;file://testhost" + testFile + "\x1b\\test.go\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "https URL",
 			input:    "see https://example.com/path for details\n",
 			cwd:      tmpDir,
-			expected: "see \x1b]8;;https://example.com/path\x07https://example.com/path\x1b]8;;\x07 for details\n",
+			expected: "see \x1b]8;;https://example.com/path\x1b\\https://example.com/path\x1b]8;;\x1b\\ for details\n",
 		},
 		{
 			name:     "https URL with query params",
 			input:    "see https://example.com/path?foo=bar&baz=qux for details\n",
 			cwd:      tmpDir,
-			expected: "see \x1b]8;;https://example.com/path?foo=bar&baz=qux\x07https://example.com/path?foo=bar&baz=qux\x1b]8;;\x07 for details\n",
+			expected: "see \x1b]8;;https://example.com/path?foo=bar&baz=qux\x1b\\https://example.com/path?foo=bar&baz=qux\x1b]8;;\x1b\\ for details\n",
 		},
 		{
 			name:     "mixed file path and URL on same line",
 			input:    testFile + " see https://example.com/docs\n",
 			cwd:      tmpDir,
-			expected: "\x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07 see \x1b]8;;https://example.com/docs\x07https://example.com/docs\x1b]8;;\x07\n",
+			expected: "\x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\ see \x1b]8;;https://example.com/docs\x1b\\https://example.com/docs\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "extensionless file with absolute path",
 			input:    "error in " + makefile + "\n",
 			cwd:      tmpDir,
-			expected: "error in \x1b]8;;file://testhost" + makefile + "\x07" + makefile + "\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + makefile + "\x1b\\" + makefile + "\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "extensionless file with relative path",
 			input:    "error in ./Makefile\n",
 			cwd:      tmpDir,
-			expected: "error in \x1b]8;;file://testhost" + makefile + "\x07./Makefile\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + makefile + "\x1b\\./Makefile\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "known extensionless file without path prefix",
 			input:    "edit Makefile please\n",
 			cwd:      tmpDir,
-			expected: "edit \x1b]8;;file://testhost" + makefile + "\x07Makefile\x1b]8;;\x07 please\n",
+			expected: "edit \x1b]8;;file://testhost" + makefile + "\x1b\\Makefile\x1b]8;;\x1b\\ please\n",
 		},
 		{
 			name:     "unknown extensionless file without path prefix not linked",
@@ -204,49 +204,49 @@ func TestLinker_Schemes(t *testing.T) {
 			name:     "vscode scheme with line and column",
 			scheme:   "vscode",
 			input:    testFile + ":42:10\n",
-			expected: "\x1b]8;;vscode://file" + testFile + ":42:10\x07" + testFile + ":42:10\x1b]8;;\x07\n",
+			expected: "\x1b]8;;vscode://file" + testFile + ":42:10\x1b\\" + testFile + ":42:10\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "vscode scheme with line only",
 			scheme:   "vscode",
 			input:    testFile + ":42\n",
-			expected: "\x1b]8;;vscode://file" + testFile + ":42\x07" + testFile + ":42\x1b]8;;\x07\n",
+			expected: "\x1b]8;;vscode://file" + testFile + ":42\x1b\\" + testFile + ":42\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "vscode scheme without line",
 			scheme:   "vscode",
 			input:    testFile + "\n",
-			expected: "\x1b]8;;vscode://file" + testFile + "\x07" + testFile + "\x1b]8;;\x07\n",
+			expected: "\x1b]8;;vscode://file" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "cursor scheme",
 			scheme:   "cursor",
 			input:    testFile + ":10:5\n",
-			expected: "\x1b]8;;cursor://file" + testFile + ":10:5\x07" + testFile + ":10:5\x1b]8;;\x07\n",
+			expected: "\x1b]8;;cursor://file" + testFile + ":10:5\x1b\\" + testFile + ":10:5\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "custom scheme",
 			scheme:   "myeditor",
 			input:    testFile + ":1\n",
-			expected: "\x1b]8;;myeditor://file" + testFile + ":1\x07" + testFile + ":1\x1b]8;;\x07\n",
+			expected: "\x1b]8;;myeditor://file" + testFile + ":1\x1b\\" + testFile + ":1\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "cursor scheme with range format converts to line:col",
 			scheme:   "cursor",
 			input:    testFile + ":12-12\n",
-			expected: "\x1b]8;;cursor://file" + testFile + ":12:1\x07" + testFile + ":12-12\x1b]8;;\x07\n",
+			expected: "\x1b]8;;cursor://file" + testFile + ":12:1\x1b\\" + testFile + ":12-12\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "cursor scheme with line range converts to start line",
 			scheme:   "cursor",
 			input:    testFile + ":12-24\n",
-			expected: "\x1b]8;;cursor://file" + testFile + ":12:1\x07" + testFile + ":12-24\x1b]8;;\x07\n",
+			expected: "\x1b]8;;cursor://file" + testFile + ":12:1\x1b\\" + testFile + ":12-24\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "empty scheme defaults to file",
 			scheme:   "",
 			input:    testFile + ":42\n",
-			expected: "\x1b]8;;file://" + hostname + testFile + "\x07" + testFile + ":42\x1b]8;;\x07\n",
+			expected: "\x1b]8;;file://" + hostname + testFile + "\x1b\\" + testFile + ":42\x1b]8;;\x1b\\\n",
 		},
 	}
 
@@ -281,37 +281,37 @@ func TestLinker_BareDomains(t *testing.T) {
 			name:     "https github.com unchanged",
 			domains:  []string{"github.com"},
 			input:    "https://github.com/mash/osc8wrap",
-			expected: "\x1b]8;;https://github.com/mash/osc8wrap\x07https://github.com/mash/osc8wrap\x1b]8;;\x07",
+			expected: "\x1b]8;;https://github.com/mash/osc8wrap\x1b\\https://github.com/mash/osc8wrap\x1b]8;;\x1b\\",
 		},
 		{
 			name:     "bare github.com",
 			domains:  []string{"github.com"},
 			input:    "github.com/mash/osc8wrap",
-			expected: "\x1b]8;;https://github.com/mash/osc8wrap\x07github.com/mash/osc8wrap\x1b]8;;\x07",
+			expected: "\x1b]8;;https://github.com/mash/osc8wrap\x1b\\github.com/mash/osc8wrap\x1b]8;;\x1b\\",
 		},
 		{
 			name:     "bare github.com with path",
 			domains:  []string{"github.com"},
 			input:    "see github.com/user/repo/issues/123",
-			expected: "see \x1b]8;;https://github.com/user/repo/issues/123\x07github.com/user/repo/issues/123\x1b]8;;\x07",
+			expected: "see \x1b]8;;https://github.com/user/repo/issues/123\x1b\\github.com/user/repo/issues/123\x1b]8;;\x1b\\",
 		},
 		{
 			name:     "mixed https and bare",
 			domains:  []string{"github.com"},
 			input:    "https://github.com/a and github.com/b",
-			expected: "\x1b]8;;https://github.com/a\x07https://github.com/a\x1b]8;;\x07 and \x1b]8;;https://github.com/b\x07github.com/b\x1b]8;;\x07",
+			expected: "\x1b]8;;https://github.com/a\x1b\\https://github.com/a\x1b]8;;\x1b\\ and \x1b]8;;https://github.com/b\x1b\\github.com/b\x1b]8;;\x1b\\",
 		},
 		{
 			name:     "custom domain gitlab.com",
 			domains:  []string{"gitlab.com"},
 			input:    "gitlab.com/user/repo",
-			expected: "\x1b]8;;https://gitlab.com/user/repo\x07gitlab.com/user/repo\x1b]8;;\x07",
+			expected: "\x1b]8;;https://gitlab.com/user/repo\x1b\\gitlab.com/user/repo\x1b]8;;\x1b\\",
 		},
 		{
 			name:     "multiple domains",
 			domains:  []string{"github.com", "gitlab.com"},
 			input:    "github.com/a and gitlab.com/b",
-			expected: "\x1b]8;;https://github.com/a\x07github.com/a\x1b]8;;\x07 and \x1b]8;;https://gitlab.com/b\x07gitlab.com/b\x1b]8;;\x07",
+			expected: "\x1b]8;;https://github.com/a\x1b\\github.com/a\x1b]8;;\x1b\\ and \x1b]8;;https://gitlab.com/b\x1b\\gitlab.com/b\x1b]8;;\x1b\\",
 		},
 		{
 			name:     "unlisted domain not linked",
@@ -367,12 +367,12 @@ func TestLinker_BasenameResolution(t *testing.T) {
 		{
 			name:     "basename only resolves via index",
 			input:    "error in main.go:10\n",
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07main.go:10\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\main.go:10\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "relative path still works",
 			input:    "error in ./src/main.go:10\n",
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07./src/main.go:10\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\./src/main.go:10\x1b]8;;\x1b\\\n",
 		},
 	}
 
@@ -440,7 +440,7 @@ func TestLinker_SuffixMatch(t *testing.T) {
 	}
 
 	input := "error in to/file.go:10\n"
-	expected := "error in \x1b]8;;file://testhost" + testFile + "\x07to/file.go:10\x1b]8;;\x07\n"
+	expected := "error in \x1b]8;;file://testhost" + testFile + "\x1b\\to/file.go:10\x1b]8;;\x1b\\\n"
 
 	_, err := linker.Write([]byte(input))
 	if err != nil {
@@ -497,7 +497,7 @@ func TestLinker_MtimePriority(t *testing.T) {
 	}
 
 	input := "error in file.go:10\n"
-	expected := "error in \x1b]8;;file://testhost" + newFile + "\x07file.go:10\x1b]8;;\x07\n"
+	expected := "error in \x1b]8;;file://testhost" + newFile + "\x1b\\file.go:10\x1b]8;;\x1b\\\n"
 
 	_, err := linker.Write([]byte(input))
 	if err != nil {
@@ -616,12 +616,12 @@ func TestLinker_TildePath(t *testing.T) {
 		{
 			name:     "tilde path basic",
 			input:    "error in ~/.osc8wrap-test/test.go\n",
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07~/.osc8wrap-test/test.go\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\~/.osc8wrap-test/test.go\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "tilde path with line number",
 			input:    "error in ~/.osc8wrap-test/test.go:42\n",
-			expected: "error in \x1b]8;;file://testhost" + testFile + "\x07~/.osc8wrap-test/test.go:42\x1b]8;;\x07\n",
+			expected: "error in \x1b]8;;file://testhost" + testFile + "\x1b\\~/.osc8wrap-test/test.go:42\x1b]8;;\x1b\\\n",
 		},
 		{
 			name:     "non-existent tilde path not linked",
@@ -678,7 +678,7 @@ func TestLinker_FsnotifyNewFile(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	input := "error in newfile.go:10\n"
-	expected := "error in \x1b]8;;file://testhost" + newFile + "\x07newfile.go:10\x1b]8;;\x07\n"
+	expected := "error in \x1b]8;;file://testhost" + newFile + "\x1b\\newfile.go:10\x1b]8;;\x1b\\\n"
 
 	_, err := linker.Write([]byte(input))
 	if err != nil {
@@ -687,5 +687,63 @@ func TestLinker_FsnotifyNewFile(t *testing.T) {
 
 	if got := buf.String(); got != expected {
 		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestLinker_Terminator(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	testFile, _ = filepath.EvalSymlinks(testFile)
+
+	hostname := "testhost"
+
+	tests := []struct {
+		name       string
+		terminator string
+		expected   string
+	}{
+		{
+			name:       "default (st) uses ESC backslash",
+			terminator: "",
+			expected:   "error in \x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:       "explicit st uses ESC backslash",
+			terminator: "st",
+			expected:   "error in \x1b]8;;file://testhost" + testFile + "\x1b\\" + testFile + "\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:       "bel uses BEL character",
+			terminator: "bel",
+			expected:   "error in \x1b]8;;file://testhost" + testFile + "\x07" + testFile + "\x1b]8;;\x07\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinkerWithOptions(LinkerOptions{
+				Output:     &buf,
+				Cwd:        tmpDir,
+				Hostname:   hostname,
+				Scheme:     "file",
+				Domains:    []string{"github.com"},
+				Terminator: tt.terminator,
+			})
+
+			input := "error in " + testFile + "\n"
+			_, err := linker.Write([]byte(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
 	}
 }
