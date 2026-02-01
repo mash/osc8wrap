@@ -69,9 +69,17 @@ func run() int {
 			fmt.Fprint(os.Stderr, usage)
 			return 1
 		}
-		return runPipeMode(linker)
+		if err := runPipeMode(linker); err != nil {
+			fmt.Fprintf(os.Stderr, "osc8wrap: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-	return runPTYMode(linker, cmdArgs)
+	exitCode, err := runPTYMode(linker, cmdArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "osc8wrap: %v\n", err)
+	}
+	return exitCode
 }
 
 func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
@@ -139,20 +147,21 @@ func splitDomains(s string) []string {
 	return result
 }
 
-func runPipeMode(linker *Linker) int {
-	io.Copy(linker, os.Stdin)
-	return 0
+func runPipeMode(linker *Linker) error {
+	if _, err := io.Copy(linker, os.Stdin); err != nil {
+		return err
+	}
+	return linker.Flush()
 }
 
-func runPTYMode(linker *Linker, cmdArgs []string) int {
+func runPTYMode(linker *Linker, cmdArgs []string) (int, error) {
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to start pty: %v\n", err)
-		return 1
+		return 1, fmt.Errorf("failed to start pty: %w", err)
 	}
-	defer ptmx.Close()
+	defer ptmx.Close() //nolint:errcheck
 
 	handleResize(ptmx)
 	forwardSignals(cmd)
@@ -160,23 +169,27 @@ func runPTYMode(linker *Linker, cmdArgs []string) int {
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err == nil {
 		defer func() {
-			os.Stdout.WriteString("\033[0m")
-			term.Restore(int(os.Stdin.Fd()), oldState)
+			_, _ = os.Stdout.WriteString("\033[0m")
+			_ = term.Restore(int(os.Stdin.Fd()), oldState)
 		}()
 	}
 
-	go io.Copy(ptmx, os.Stdin)
+	go func() { _, _ = io.Copy(ptmx, os.Stdin) }()
 
-	io.Copy(linker, ptmx)
+	if _, err := io.Copy(linker, ptmx); err != nil {
+		return 1, err
+	}
 
-	linker.Flush()
+	if err := linker.Flush(); err != nil {
+		return 1, err
+	}
 
-	cmd.Wait()
+	_ = cmd.Wait()
 
 	if cmd.ProcessState != nil {
-		return cmd.ProcessState.ExitCode()
+		return cmd.ProcessState.ExitCode(), nil
 	}
-	return 0
+	return 0, nil
 }
 
 func handleResize(ptmx *os.File) {
@@ -185,7 +198,7 @@ func handleResize(ptmx *os.File) {
 
 	go func() {
 		for range ch {
-			pty.InheritSize(os.Stdin, ptmx)
+			_ = pty.InheritSize(os.Stdin, ptmx)
 		}
 	}()
 
@@ -199,7 +212,7 @@ func forwardSignals(cmd *exec.Cmd) {
 	go func() {
 		for sig := range ch {
 			if cmd.Process != nil {
-				cmd.Process.Signal(sig)
+				_ = cmd.Process.Signal(sig)
 			}
 		}
 	}()
