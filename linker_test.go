@@ -99,6 +99,18 @@ func TestLinker_Write(t *testing.T) {
 			expected: "see \x1b]8;;https://example.com/path?foo=bar&baz=qux\x1b\\https://example.com/path?foo=bar&baz=qux\x1b]8;;\x1b\\ for details\n",
 		},
 		{
+			name:     "https URL in parentheses excludes trailing paren",
+			input:    "Fetch(https://example.com/path)\n",
+			cwd:      tmpDir,
+			expected: "Fetch(\x1b]8;;https://example.com/path\x1b\\https://example.com/path\x1b]8;;\x1b\\)\n",
+		},
+		{
+			name:     "https URL with balanced parens includes them",
+			input:    "see https://en.wikipedia.org/wiki/Foo_(bar) for details\n",
+			cwd:      tmpDir,
+			expected: "see \x1b]8;;https://en.wikipedia.org/wiki/Foo_(bar)\x1b\\https://en.wikipedia.org/wiki/Foo_(bar)\x1b]8;;\x1b\\ for details\n",
+		},
+		{
 			name:     "mixed file path and URL on same line",
 			input:    testFile + " see https://example.com/docs\n",
 			cwd:      tmpDir,

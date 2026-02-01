@@ -173,7 +173,9 @@ func (l *Linker) convertLine(data []byte) []byte {
 
 		// group 1: https URL
 		if start, end, ok := submatch(m, 1); ok {
-			result.Write(l.wrapURL(data[start:end]))
+			wrapped, suffix := l.wrapURL(data[start:end])
+			result.Write(wrapped)
+			result.Write(suffix)
 			last = fullEnd
 			continue
 		}
@@ -293,7 +295,8 @@ func normalizeLocSuffix(s string) string {
 	return s
 }
 
-func (l *Linker) wrapURL(url []byte) []byte {
+func (l *Linker) wrapURL(url []byte) ([]byte, []byte) {
+	url, suffix := trimURLSuffix(url)
 	var buf bytes.Buffer
 	buf.WriteString("\x1b]8;;")
 	buf.Write(url)
@@ -301,7 +304,17 @@ func (l *Linker) wrapURL(url []byte) []byte {
 	buf.Write(url)
 	buf.WriteString("\x1b]8;;")
 	buf.WriteString(l.st())
-	return buf.Bytes()
+	return buf.Bytes(), suffix
+}
+
+func trimURLSuffix(url []byte) ([]byte, []byte) {
+	if len(url) == 0 || url[len(url)-1] != ')' {
+		return url, nil
+	}
+	if bytes.IndexByte(url, '(') != -1 {
+		return url, nil
+	}
+	return url[:len(url)-1], url[len(url)-1:]
 }
 
 func (l *Linker) wrapBareDomain(prefix, domain []byte) []byte {
