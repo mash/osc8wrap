@@ -159,13 +159,18 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 }
 
 func (l *Linker) Flush() error {
+	tokens := l.tokenizer.Flush()
+	for _, tok := range tokens {
+		if _, err := l.output.Write(tok.Data); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (l *Linker) Close() error {
-	tokens := l.tokenizer.Flush()
-	for _, tok := range tokens {
-		l.output.Write(tok.Data)
+	if err := l.Flush(); err != nil {
+		return err
 	}
 	if l.debugFile != nil {
 		return l.debugFile.Close()
