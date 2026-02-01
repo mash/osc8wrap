@@ -36,6 +36,7 @@ Options:
                           Can also be set via OSC8WRAP_EXCLUDE_DIRS
   --no-symbol-links       Disable symbol linking (default: enabled when scheme != file)
                           Can also be set via OSC8WRAP_NO_SYMBOL_LINKS=1
+  --debug-writes          Log each Write call to a temp file (path printed to stderr)
 
 Examples:
   osc8wrap go build ./...
@@ -100,6 +101,8 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 			opts.ExcludeDirs = splitDomains(v)
 		} else if arg == "--no-symbol-links" {
 			noSymbolLinks = true
+		} else if arg == "--debug-writes" {
+			opts.DebugWrites = true
 		} else if arg == "--" {
 			cmdArgs = args[i+1:]
 			break

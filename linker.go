@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ type LinkerOptions struct {
 	ExcludeDirs     []string
 	Terminator      string // "st" (default, ESC \) or "bel" (0x07)
 	SymbolLinks     bool
+	DebugWrites     bool
 }
 
 type Linker struct {
@@ -37,6 +39,8 @@ type Linker struct {
 	index           *FileIndex
 	terminator      string
 	symbolLinks     bool
+	debugFile       *os.File
+	writeSeq        int
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
@@ -73,6 +77,13 @@ func NewLinkerWithOptions(opts LinkerOptions) *Linker {
 		symbolLinks:     opts.SymbolLinks,
 	}
 	l.urlPattern = l.buildPattern()
+	if opts.DebugWrites {
+		f, err := os.CreateTemp("", "osc8wrap-debug-*.log")
+		if err == nil {
+			l.debugFile = f
+			fmt.Fprintf(os.Stderr, "osc8wrap: debug writes log: %s\n", f.Name())
+		}
+	}
 	return l
 }
 
@@ -108,7 +119,19 @@ func (l *Linker) buildPattern() *regexp.Regexp {
 }
 
 func (l *Linker) Write(p []byte) (n int, err error) {
+	l.writeSeq++
+	if l.debugFile != nil {
+		fmt.Fprintf(l.debugFile, "=== Write #%d (%d bytes) ===\n", l.writeSeq, len(p))
+		fmt.Fprintf(l.debugFile, "Input:  %q\n", p)
+	}
+
 	processed := l.convertLine(p)
+
+	if l.debugFile != nil {
+		fmt.Fprintf(l.debugFile, "Output: %q\n\n", processed)
+		l.debugFile.Sync()
+	}
+
 	_, err = l.output.Write(processed)
 	if err != nil {
 		return 0, err
@@ -117,6 +140,13 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 }
 
 func (l *Linker) Flush() error {
+	return nil
+}
+
+func (l *Linker) Close() error {
+	if l.debugFile != nil {
+		return l.debugFile.Close()
+	}
 	return nil
 }
 
