@@ -33,6 +33,8 @@ const (
 	stateDCS                      // Inside DCS/APC/PM sequence, waiting for ST
 )
 
+// maxBufferSize limits buffer growth for unterminated OSC/DCS sequences.
+// If exceeded, the incomplete sequence is emitted as TokenOther and parsing resets.
 const maxBufferSize = 4096
 
 type AnsiTokenizer struct {
@@ -99,6 +101,7 @@ func (t *AnsiTokenizer) Feed(p []byte) []Token {
 		case stateOSC:
 			switch b {
 			case 0x07:
+				t.buf = append(t.buf, b)
 				tok := t.emitOSC()
 				tokens = append(tokens, tok)
 				t.buf = t.buf[:0]

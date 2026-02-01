@@ -388,6 +388,9 @@ func TestAnsiTokenizerOSCWithBEL(t *testing.T) {
 	if tokens[0].IsEnd {
 		t.Error("token 0: expected IsEnd=false")
 	}
+	if string(tokens[0].Data) != "\x1b]8;;https://example.com\x07" {
+		t.Errorf("token 0: expected OSC data with BEL terminator, got %q", tokens[0].Data)
+	}
 
 	if tokens[1].Kind != TokenText {
 		t.Errorf("token 1: expected TokenText, got %d", tokens[1].Kind)
