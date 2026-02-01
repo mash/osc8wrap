@@ -11,8 +11,6 @@ import (
 	"strings"
 )
 
-var osc8Start = []byte("\x1b]8;;")
-
 type LinkerOptions struct {
 	Output          io.Writer
 	Cwd             string
@@ -41,6 +39,9 @@ type Linker struct {
 	symbolLinks     bool
 	debugFile       *os.File
 	writeSeq        int
+	tokenizer *AnsiTokenizer
+	styled    bool // true when inside SGR-styled text; enables symbol linking
+	inOSC8    bool // true when inside OSC8 hyperlink; disables all processing
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
@@ -75,6 +76,7 @@ func NewLinkerWithOptions(opts LinkerOptions) *Linker {
 		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs),
 		terminator:      terminator,
 		symbolLinks:     opts.SymbolLinks,
+		tokenizer:       NewAnsiTokenizer(),
 	}
 	l.urlPattern = l.buildPattern()
 	if opts.DebugWrites {
@@ -125,14 +127,31 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 		fmt.Fprintf(l.debugFile, "Input:  %q\n", p)
 	}
 
-	processed := l.convertLine(p)
+	tokens := l.tokenizer.Feed(p)
+	var result bytes.Buffer
+
+	for _, tok := range tokens {
+		switch tok.Kind {
+		case TokenText:
+			processed := l.processTextWithState(tok.Data, l.styled, l.inOSC8)
+			result.Write(processed)
+		case TokenSGR:
+			result.Write(tok.Data)
+			l.styled = tok.Styled
+		case TokenOSC8:
+			result.Write(tok.Data)
+			l.inOSC8 = !tok.IsEnd
+		default:
+			result.Write(tok.Data)
+		}
+	}
 
 	if l.debugFile != nil {
-		fmt.Fprintf(l.debugFile, "Output: %q\n\n", processed)
+		fmt.Fprintf(l.debugFile, "Output: %q\n\n", result.Bytes())
 		l.debugFile.Sync()
 	}
 
-	_, err = l.output.Write(processed)
+	_, err = l.output.Write(result.Bytes())
 	if err != nil {
 		return 0, err
 	}
@@ -144,21 +163,25 @@ func (l *Linker) Flush() error {
 }
 
 func (l *Linker) Close() error {
+	tokens := l.tokenizer.Flush()
+	for _, tok := range tokens {
+		l.output.Write(tok.Data)
+	}
 	if l.debugFile != nil {
 		return l.debugFile.Close()
 	}
 	return nil
 }
 
-func (l *Linker) convertLine(data []byte) []byte {
-	if bytes.Contains(data, osc8Start) {
+func (l *Linker) processTextWithState(data []byte, styled, inOSC8 bool) []byte {
+	if inOSC8 {
 		return data
 	}
 
 	matches := l.urlPattern.FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
-		if l.symbolLinks {
-			return l.convertSymbols(data)
+		if l.symbolLinks && styled {
+			return l.replaceSymbolsStyledSegment(data)
 		}
 		return data
 	}
@@ -168,10 +191,14 @@ func (l *Linker) convertLine(data []byte) []byte {
 	for _, m := range matches {
 		fullStart, fullEnd := m[0], m[1]
 		if fullStart > last {
-			result.Write(data[last:fullStart])
+			segment := data[last:fullStart]
+			if l.symbolLinks && styled {
+				result.Write(l.replaceSymbolsStyledSegment(segment))
+			} else {
+				result.Write(segment)
+			}
 		}
 
-		// group 1: https URL
 		if start, end, ok := submatch(m, 1); ok {
 			wrapped, suffix := l.wrapURL(data[start:end])
 			result.Write(wrapped)
@@ -180,7 +207,6 @@ func (l *Linker) convertLine(data []byte) []byte {
 			continue
 		}
 
-		// group 2: bare domain URL
 		if start, end, ok := submatch(m, 2); ok {
 			prefix := data[fullStart:start]
 			domainPart := data[start:end]
@@ -189,7 +215,6 @@ func (l *Linker) convertLine(data []byte) []byte {
 			continue
 		}
 
-		// group 3: file path
 		pathStart, pathEnd, ok := submatch(m, 3)
 		if !ok {
 			result.Write(data[fullStart:fullEnd])
@@ -215,15 +240,15 @@ func (l *Linker) convertLine(data []byte) []byte {
 	}
 
 	if last < len(data) {
-		result.Write(data[last:])
+		segment := data[last:]
+		if l.symbolLinks && styled {
+			result.Write(l.replaceSymbolsStyledSegment(segment))
+		} else {
+			result.Write(segment)
+		}
 	}
 
-	output := result.Bytes()
-	if l.symbolLinks {
-		output = l.convertSymbols(output)
-	}
-
-	return output
+	return result.Bytes()
 }
 
 func (l *Linker) resolvePath(path string) string {
@@ -378,77 +403,6 @@ func (l *Linker) WaitForIndex(ctx context.Context) error {
 		return nil
 	}
 	return l.index.Wait(ctx)
-}
-
-// disallowedEscapePattern matches escape sequences that should skip symbol linking.
-// Only SGR (\x1b[...m) and OSC8 (\x1b]8;;) are allowed to overlap with symbol linking.
-var disallowedEscapePattern = regexp.MustCompile(`` +
-	// CSI not ending with 'm': cursor control, screen manipulation, etc.
-	// Final byte 'm' (0x6D) is excluded to allow SGR sequences
-	`\x1b\[[0-9;?<>=]*[@A-Za-lo-z\[\]^_` + "`" + `{|}~\\]` +
-	`|` +
-	// OSC 0-7 and 9: window title, clipboard, notifications, etc.
-	`\x1b\][0-79]` +
-	`|` +
-	// DCS (\x1bP), APC (\x1b_), PM (\x1b^): device control strings
-	`\x1b[P_^]`,
-)
-
-func (l *Linker) convertSymbols(data []byte) []byte {
-	if bytes.IndexByte(data, 0x1b) != -1 {
-		if disallowedEscapePattern.Match(data) {
-			return data
-		}
-	}
-
-	var result bytes.Buffer
-	remaining := data
-
-	for len(remaining) > 0 {
-		startIdx := bytes.Index(remaining, osc8Start)
-		if startIdx == -1 {
-			result.Write(l.replaceSymbols(remaining))
-			break
-		}
-
-		result.Write(l.replaceSymbols(remaining[:startIdx]))
-
-		endIdx := bytes.Index(remaining[startIdx:], []byte("\x1b]8;;\x1b\\"))
-		if endIdx == -1 {
-			endIdx = bytes.Index(remaining[startIdx:], []byte("\x1b]8;;\x07"))
-		}
-		if endIdx == -1 {
-			result.Write(remaining[startIdx:])
-			break
-		}
-
-		linkEnd := startIdx + endIdx + len("\x1b]8;;\x1b\\")
-		result.Write(remaining[startIdx:linkEnd])
-		remaining = remaining[linkEnd:]
-	}
-
-	return result.Bytes()
-}
-
-func (l *Linker) replaceSymbols(data []byte) []byte {
-	var result bytes.Buffer
-	styled := false
-	scanTokens(data, func(tok token, next int) {
-		if tok.kind == tokenText {
-			segment := data[tok.start:tok.end]
-			if styled {
-				result.Write(l.replaceSymbolsStyledSegment(segment))
-			} else {
-				result.Write(segment)
-			}
-			return
-		}
-
-		result.Write(data[tok.start:tok.end])
-		styled = tok.styled
-	})
-
-	return result.Bytes()
 }
 
 func (l *Linker) replaceSymbolsStyledSegment(data []byte) []byte {
