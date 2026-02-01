@@ -188,13 +188,13 @@ func TestLinker_OutputsImmediately(t *testing.T) {
 	var buf bytes.Buffer
 	linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
 
-	linker.Write([]byte("first line\nsecond "))
+	_, _ = linker.Write([]byte("first line\nsecond "))
 	if got := buf.String(); got != "first line\nsecond " {
 		t.Errorf("after first write: got %q, want %q", got, "first line\nsecond ")
 	}
 
 	buf.Reset()
-	linker.Write([]byte("line\n"))
+	_, _ = linker.Write([]byte("line\n"))
 	if got := buf.String(); got != "line\n" {
 		t.Errorf("after second write: got %q, want %q", got, "line\n")
 	}
@@ -207,7 +207,7 @@ func TestLinker_OutputsWithoutNewline(t *testing.T) {
 	var buf bytes.Buffer
 	linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
 
-	linker.Write([]byte("no newline"))
+	_, _ = linker.Write([]byte("no newline"))
 	if got := buf.String(); got != "no newline" {
 		t.Errorf("got %q, want %q", got, "no newline")
 	}
@@ -628,7 +628,7 @@ func TestLinker_TildePath(t *testing.T) {
 	if err := os.MkdirAll(testDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(testDir)
+	defer os.RemoveAll(testDir) //nolint:errcheck
 
 	testFile := filepath.Join(testDir, "test.go")
 	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {

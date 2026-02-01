@@ -123,8 +123,8 @@ func (l *Linker) buildPattern() *regexp.Regexp {
 func (l *Linker) Write(p []byte) (n int, err error) {
 	l.writeSeq++
 	if l.debugFile != nil {
-		fmt.Fprintf(l.debugFile, "=== Write #%d (%d bytes) ===\n", l.writeSeq, len(p))
-		fmt.Fprintf(l.debugFile, "Input:  %q\n", p)
+		_, _ = fmt.Fprintf(l.debugFile, "=== Write #%d (%d bytes) ===\n", l.writeSeq, len(p))
+		_, _ = fmt.Fprintf(l.debugFile, "Input:  %q\n", p)
 	}
 
 	tokens := l.tokenizer.Feed(p)

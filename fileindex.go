@@ -74,7 +74,7 @@ func (idx *FileIndex) buildFromGit(ctx context.Context) {
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 			return
 		default:
 		}
@@ -95,11 +95,11 @@ func (idx *FileIndex) buildFromGit(ctx context.Context) {
 		idx.mu.Unlock()
 	}
 
-	cmd.Wait()
+	_ = cmd.Wait()
 }
 
 func (idx *FileIndex) buildFromFilesystem(ctx context.Context) {
-	filepath.WalkDir(idx.cwd, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(idx.cwd, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -198,7 +198,7 @@ func (idx *FileIndex) startWatcher(ctx context.Context) {
 }
 
 func (idx *FileIndex) watchDirRecursive(root string) {
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -208,13 +208,13 @@ func (idx *FileIndex) watchDirRecursive(root string) {
 		if idx.excludeSet[d.Name()] {
 			return filepath.SkipDir
 		}
-		idx.watcher.Add(path)
+		_ = idx.watcher.Add(path)
 		return nil
 	})
 }
 
 func (idx *FileIndex) watchLoop(ctx context.Context) {
-	defer idx.watcher.Close()
+	defer idx.watcher.Close() //nolint:errcheck
 
 	for {
 		select {
@@ -277,7 +277,7 @@ func (idx *FileIndex) handleRemove(path string) {
 }
 
 func (idx *FileIndex) indexDir(dir string) {
-	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
