@@ -243,13 +243,10 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			steps: []feedStep{
 				{
 					input: dcs + "data" + bel + "text",
-					want: []tokenExpectation{
-						{kind: TokenDCS, data: dcs + "data" + bel},
-						{kind: TokenText, data: "text"},
-					},
+					want:  []tokenExpectation{},
 				},
 			},
-			flush:      []tokenExpectation{},
+			flush:      []tokenExpectation{{kind: TokenDCS, data: dcs + "data" + bel + "text"}},
 			wantStyled: false,
 			wantInOSC8: false,
 		},

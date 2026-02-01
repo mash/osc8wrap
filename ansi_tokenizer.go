@@ -138,10 +138,6 @@ func (t *AnsiTokenizer) Feed(p []byte) []Token {
 			case escByte:
 				t.prevState = stateDCS
 				t.state = stateSTCandidate
-			case belByte:
-				tokens = append(tokens, Token{Kind: TokenDCS, Data: t.copyBuf()})
-				t.buf = t.buf[:0]
-				t.state = stateGround
 			default:
 			}
 		}
