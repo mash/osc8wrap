@@ -293,30 +293,53 @@ func TestParseOSC8(t *testing.T) {
 }
 
 func TestAnsiTokenizerBufferOverflow(t *testing.T) {
-	tok := NewAnsiTokenizer()
-
-	largeOSC := make([]byte, maxBufferSize+100)
-	largeOSC[0] = 0x1b
-	largeOSC[1] = ']'
-	for i := 2; i < len(largeOSC); i++ {
-		largeOSC[i] = 'x'
+	tests := []struct {
+		name           string
+		input          []byte
+		wantKind       TokenKind
+		wantState      state
+	}{
+		{
+			name:     "osc-overflow",
+			input:    func() []byte { b := make([]byte, maxBufferSize+100); b[0] = 0x1b; b[1] = ']'; for i := 2; i < len(b); i++ { b[i] = 'x' }; return b }(),
+			wantKind: TokenOther,
+			wantState: stateGround,
+		},
+		{
+			name:           "text-overflow",
+			input:          bytes.Repeat([]byte("a"), maxBufferSize+10),
+			wantKind:       TokenText,
+			wantState:      stateGround,
+		},
 	}
 
-	tokens := tok.Feed(largeOSC)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tok := NewAnsiTokenizer()
+			tokens := tok.Feed(tt.input)
+			if len(tokens) == 0 {
+				t.Fatal("expected tokens for overflow input")
+			}
 
-	found := false
-	for _, token := range tokens {
-		if token.Kind == TokenOther {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected TokenOther when buffer overflows")
-	}
+			found := false
+			var out []byte
+			for _, token := range tokens {
+				if token.Kind == tt.wantKind {
+					found = true
+				}
+				out = append(out, token.Data...)
+			}
 
-	if tok.state != stateGround {
-		t.Error("expected state to be reset to Ground after overflow")
+			if !found {
+				t.Errorf("expected token kind %d for %s", tt.wantKind, tt.name)
+			}
+			if tok.state != tt.wantState {
+				t.Errorf("expected state %v after overflow, got %v", tt.wantState, tok.state)
+			}
+			if !bytes.Equal(out, tt.input) {
+				t.Errorf("expected output to match input, got len %d want %d", len(out), len(tt.input))
+			}
+		})
 	}
 }
 

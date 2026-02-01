@@ -146,9 +146,13 @@ func (t *AnsiTokenizer) Feed(p []byte) []Token {
 		}
 
 		if len(t.buf) > maxBufferSize {
-			tokens = append(tokens, Token{Kind: TokenOther, Data: t.copyBuf()})
+			if t.state == stateGround {
+				tokens = append(tokens, Token{Kind: TokenText, Data: t.copyBuf()})
+			} else {
+				tokens = append(tokens, Token{Kind: TokenOther, Data: t.copyBuf()})
+				t.state = stateGround
+			}
 			t.buf = t.buf[:0]
-			t.state = stateGround
 		}
 	}
 
@@ -265,7 +269,7 @@ func extractOSCData(data []byte) []byte {
 	if start >= end {
 		return nil
 	}
-	return data[2:end]
+	return data[start:end]
 }
 
 func isCSIFinalByte(b byte) bool {
