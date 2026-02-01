@@ -1,10 +1,13 @@
-.PHONY: build test clean install release
+.PHONY: build test lint clean install release
 
 build:
 	go build -o osc8wrap .
 
 test:
 	go test -v ./...
+
+lint:
+	golangci-lint run
 
 clean:
 	rm -f osc8wrap
