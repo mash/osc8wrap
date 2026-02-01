@@ -37,7 +37,6 @@ type Linker struct {
 	index           *FileIndex
 	terminator      string
 	symbolLinks     bool
-	symbolPattern   *regexp.Regexp
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
@@ -74,9 +73,6 @@ func NewLinkerWithOptions(opts LinkerOptions) *Linker {
 		symbolLinks:     opts.SymbolLinks,
 	}
 	l.urlPattern = l.buildPattern()
-	if l.symbolLinks {
-		l.symbolPattern = l.buildSymbolPattern()
-	}
 	return l
 }
 
@@ -341,20 +337,6 @@ func (l *Linker) WaitForIndex(ctx context.Context) error {
 	return l.index.Wait(ctx)
 }
 
-func (l *Linker) buildSymbolPattern() *regexp.Regexp {
-	// symbol pattern: matches PascalCase or camelCase identifiers
-	pattern := `` +
-		`(?:^|[^\w]|\x1b\[[0-9;]*m)` + // boundary: start, non-word char, or ANSI SGR
-		`(` + // group 1: symbol name
-		`[A-Z][a-zA-Z0-9]*[a-z][a-zA-Z0-9]*` + // PascalCase: requires lowercase to exclude ALL_CAPS
-		`|` +
-		`[a-z][a-z0-9]*[A-Z][a-zA-Z0-9]*` + // camelCase: requires uppercase to exclude lowercase words
-		`)` +
-		`(\(\))?` // group 2: optional () to distinguish function calls
-
-	return regexp.MustCompile(pattern)
-}
-
 // disallowedEscapePattern matches escape sequences that should skip symbol linking.
 // Only SGR (\x1b[...m) and OSC8 (\x1b]8;;) are allowed to overlap with symbol linking.
 var disallowedEscapePattern = regexp.MustCompile(`` +
@@ -406,38 +388,54 @@ func (l *Linker) convertSymbols(data []byte) []byte {
 }
 
 func (l *Linker) replaceSymbols(data []byte) []byte {
-	matches := l.symbolPattern.FindAllSubmatchIndex(data, -1)
-	if len(matches) == 0 {
-		return data
-	}
-
 	var result bytes.Buffer
-	last := 0
-	for _, m := range matches {
-		fullStart, fullEnd := m[0], m[1]
-		if fullStart > last {
-			result.Write(data[last:fullStart])
+	styled := false
+	scanTokens(data, func(tok token, next int) {
+		if tok.kind == tokenText {
+			segment := data[tok.start:tok.end]
+			if styled {
+				result.Write(l.replaceSymbolsStyledSegment(segment))
+			} else {
+				result.Write(segment)
+			}
+			return
 		}
 
-		symbolStart, symbolEnd, ok := submatch(m, 1)
-		if !ok {
-			result.Write(data[fullStart:fullEnd])
-			last = fullEnd
+		result.Write(data[tok.start:tok.end])
+		styled = tok.styled
+	})
+
+	return result.Bytes()
+}
+
+func (l *Linker) replaceSymbolsStyledSegment(data []byte) []byte {
+	var result bytes.Buffer
+	for i := 0; i < len(data); {
+		if !isWordChar(data[i]) {
+			result.WriteByte(data[i])
+			i++
 			continue
 		}
 
-		prefix := data[fullStart:symbolStart]
-		symbolName := data[symbolStart:symbolEnd]
-		_, _, hasParens := submatch(m, 2)
-		result.Write(l.wrapSymbol(prefix, symbolName, hasParens))
-		last = fullEnd
-	}
+		start := i
+		for i < len(data) && isWordChar(data[i]) {
+			i++
+		}
+		word := data[start:i]
 
-	if last < len(data) {
-		result.Write(data[last:])
+		if len(word) >= 3 {
+			isFunction := i < len(data) && data[i] == '('
+			result.Write(l.wrapSymbol(nil, word, isFunction))
+		} else {
+			result.Write(word)
+		}
 	}
 
 	return result.Bytes()
+}
+
+func isWordChar(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 func submatch(match []int, group int) (start, end int, ok bool) {
@@ -468,9 +466,6 @@ func (l *Linker) wrapSymbol(prefix, symbol []byte, isFunction bool) []byte {
 	}
 	buf.WriteString(l.st())
 	buf.Write(symbol)
-	if isFunction {
-		buf.WriteString("()")
-	}
 	buf.WriteString("\x1b]8;;")
 	buf.WriteString(l.st())
 	return buf.Bytes()

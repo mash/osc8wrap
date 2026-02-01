@@ -778,45 +778,45 @@ func TestLinker_SymbolLinks(t *testing.T) {
 	}{
 		{
 			name:        "PascalCase symbol",
-			input:       "undefined: NewLinker\n",
+			input:       "undefined: \x1b[31mNewLinker\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\n",
+			expected:    "undefined: \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:        "camelCase symbol",
-			input:       "undefined: getUserName\n",
+			input:       "undefined: \x1b[31mgetUserName\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=getUserName&cwd=" + tmpDir + "\x1b\\getUserName\x1b]8;;\x1b\\\n",
+			expected:    "undefined: \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=getUserName&cwd=" + tmpDir + "\x1b\\getUserName\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:        "function call with parens",
-			input:       "undefined: NewLinker()\n",
+			input:       "undefined: \x1b[31mNewLinker()\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "&kind=Function\x1b\\NewLinker()\x1b]8;;\x1b\\\n",
+			expected:    "undefined: \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "&kind=Function\x1b\\NewLinker\x1b]8;;\x1b\\()\x1b[0m\n",
 		},
 		{
 			name:        "multiple symbols",
-			input:       "NewLinker calls GetUser\n",
+			input:       "\x1b[31mNewLinker\x1b[0m calls \x1b[32mGetUser\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\ calls \x1b]8;;cursor://mash.symbol-opener?symbol=GetUser&cwd=" + tmpDir + "\x1b\\GetUser\x1b]8;;\x1b\\\n",
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\x1b[0m calls \x1b[32m\x1b]8;;cursor://mash.symbol-opener?symbol=GetUser&cwd=" + tmpDir + "\x1b\\GetUser\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:        "short identifiers not linked",
-			input:       "ID and DB are too short\n",
+			input:       "\x1b[31mID\x1b[0m and \x1b[31mDB\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "ID and DB are too short\n",
+			expected:    "\x1b[31mID\x1b[0m and \x1b[31mDB\x1b[0m\n",
 		},
 		{
-			name:        "lowercase words not linked",
-			input:       "error in function\n",
+			name:        "lowercase words linked",
+			input:       "\x1b[31merror\x1b[0m in \x1b[31mfunction\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "error in function\n",
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=error&cwd=" + tmpDir + "\x1b\\error\x1b]8;;\x1b\\\x1b[0m in \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=function&cwd=" + tmpDir + "\x1b\\function\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:        "symbol links disabled",
-			input:       "undefined: NewLinker\n",
+			input:       "undefined: \x1b[31mNewLinker\x1b[0m\n",
 			symbolLinks: false,
-			expected:    "undefined: NewLinker\n",
+			expected:    "undefined: \x1b[31mNewLinker\x1b[0m\n",
 		},
 		{
 			name:        "cursor control sequences skip symbol linking",
@@ -831,40 +831,82 @@ func TestLinker_SymbolLinks(t *testing.T) {
 			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
-			name:        "ALL_CAPS not linked",
-			input:       "ERROR and HTTP_STATUS\n",
+			name:        "SGR terminator does not create m-prefixed symbol",
+			input:       "\x1b[36m@@ -1,1 +1,1 @@\x1b[mINSERT INTO\n",
 			symbolLinks: true,
-			expected:    "ERROR and HTTP_STATUS\n",
+			expected:    "\x1b[36m@@ -1,1 +1,1 @@\x1b[mINSERT INTO\n",
 		},
 		{
-			name:        "snake_case not linked",
-			input:       "get_user_name\n",
+			name:        "CSI bracket not used as boundary",
+			input:       "\x1b[mTestFunc and more\n",
 			symbolLinks: true,
-			expected:    "get_user_name\n",
+			expected:    "\x1b[mTestFunc and more\n",
+		},
+		{
+			name:        "ALL_CAPS linked",
+			input:       "\x1b[31mERROR\x1b[0m and \x1b[31mHTTP_STATUS\x1b[0m\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=ERROR&cwd=" + tmpDir + "\x1b\\ERROR\x1b]8;;\x1b\\\x1b[0m and \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=HTTP_STATUS&cwd=" + tmpDir + "\x1b\\HTTP_STATUS\x1b]8;;\x1b\\\x1b[0m\n",
+		},
+		{
+			name:        "snake_case linked",
+			input:       "\x1b[31mget_user_name\x1b[0m\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=get_user_name&cwd=" + tmpDir + "\x1b\\get_user_name\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:        "symbol with numbers",
-			input:       "Handler2 and V2Client\n",
+			input:       "\x1b[31mHandler2\x1b[0m and \x1b[31mV2Client\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=Handler2&cwd=" + tmpDir + "\x1b\\Handler2\x1b]8;;\x1b\\ and \x1b]8;;cursor://mash.symbol-opener?symbol=V2Client&cwd=" + tmpDir + "\x1b\\V2Client\x1b]8;;\x1b\\\n",
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=Handler2&cwd=" + tmpDir + "\x1b\\Handler2\x1b]8;;\x1b\\\x1b[0m and \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=V2Client&cwd=" + tmpDir + "\x1b\\V2Client\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 		{
 			name:        "symbol in parentheses",
-			input:       "(NewLinker)\n",
+			input:       "(\x1b[31mNewLinker\x1b[0m)\n",
 			symbolLinks: true,
-			expected:    "(\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\)\n",
+			expected:    "(\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\x1b[0m)\n",
 		},
 		{
-			name:        "function with args does not have kind",
-			input:       "NewLinker(arg)\n",
+			name:        "function with args has kind",
+			input:       "\x1b[31mNewLinker(arg)\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\(arg)\n",
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "&kind=Function\x1b\\NewLinker\x1b]8;;\x1b\\(\x1b]8;;cursor://mash.symbol-opener?symbol=arg&cwd=" + tmpDir + "\x1b\\arg\x1b]8;;\x1b\\)\x1b[0m\n",
 		},
 		{
 			name:        "acronym in PascalCase",
-			input:       "HTTPClient and XMLParser\n",
+			input:       "\x1b[31mHTTPClient\x1b[0m and \x1b[31mXMLParser\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "\x1b]8;;cursor://mash.symbol-opener?symbol=HTTPClient&cwd=" + tmpDir + "\x1b\\HTTPClient\x1b]8;;\x1b\\ and \x1b]8;;cursor://mash.symbol-opener?symbol=XMLParser&cwd=" + tmpDir + "\x1b\\XMLParser\x1b]8;;\x1b\\\n",
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=HTTPClient&cwd=" + tmpDir + "\x1b\\HTTPClient\x1b]8;;\x1b\\\x1b[0m and \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=XMLParser&cwd=" + tmpDir + "\x1b\\XMLParser\x1b]8;;\x1b\\\x1b[0m\n",
+		},
+		{
+			name:        "mid-word reset links colored part only",
+			input:       "\x1b[31mFoo\x1b[0mBar\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=Foo&cwd=" + tmpDir + "\x1b\\Foo\x1b]8;;\x1b\\\x1b[0mBar\n",
+		},
+		{
+			name:        "plain text not linked",
+			input:       "plain NewLinker text\n",
+			symbolLinks: true,
+			expected:    "plain NewLinker text\n",
+		},
+		{
+			name:        "nested SGR sequences",
+			input:       "\x1b[31m\x1b[1mFoo\x1b[0m\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b[1m\x1b]8;;cursor://mash.symbol-opener?symbol=Foo&cwd=" + tmpDir + "\x1b\\Foo\x1b]8;;\x1b\\\x1b[0m\n",
+		},
+		{
+			name:        "reset then space separates words",
+			input:       "\x1b[31mFoo\x1b[0m Bar\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=Foo&cwd=" + tmpDir + "\x1b\\Foo\x1b]8;;\x1b\\\x1b[0m Bar\n",
+		},
+		{
+			name:        "partial coloring links only colored part",
+			input:       "Foo\x1b[31mBar\x1b[0mBaz\n",
+			symbolLinks: true,
+			expected:    "Foo\x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=Bar&cwd=" + tmpDir + "\x1b\\Bar\x1b]8;;\x1b\\\x1b[0mBaz\n",
 		},
 	}
 
@@ -913,8 +955,8 @@ func TestLinker_SymbolLinksWithFilePaths(t *testing.T) {
 		SymbolLinks: true,
 	})
 
-	input := testFile + ":10: undefined: NewLinker\n"
-	expected := "\x1b]8;;cursor://file" + testFile + ":10\x1b\\" + testFile + ":10\x1b]8;;\x1b\\: undefined: \x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\n"
+	input := testFile + ":10: undefined: \x1b[31mNewLinker\x1b[0m\n"
+	expected := "\x1b]8;;cursor://file" + testFile + ":10\x1b\\" + testFile + ":10\x1b]8;;\x1b\\: undefined: \x1b[31m\x1b]8;;cursor://mash.symbol-opener?symbol=NewLinker&cwd=" + tmpDir + "\x1b\\NewLinker\x1b]8;;\x1b\\\x1b[0m\n"
 
 	_, err := linker.Write([]byte(input))
 	if err != nil {
