@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+const (
+	esc = "\x1b"
+	bel = "\x07"
+	nul = "\x00"
+	st  = esc + "\\"
+	csi = esc + "["
+	osc = esc + "]"
+	dcs = esc + "P"
+)
+
 type tokenExpectation struct {
 	kind   TokenKind
 	data   string
@@ -63,11 +73,11 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "sgr",
 			steps: []feedStep{
 				{
-					input: "\x1b[31mred\x1b[0m",
+					input: csi + "31mred" + csi + "0m",
 					want: []tokenExpectation{
-						{kind: TokenSGR, data: "\x1b[31m", styled: true},
+						{kind: TokenSGR, data: csi + "31m", styled: true},
 						{kind: TokenText, data: "red"},
-						{kind: TokenSGR, data: "\x1b[0m"},
+						{kind: TokenSGR, data: csi + "0m"},
 					},
 				},
 			},
@@ -79,9 +89,9 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "csi",
 			steps: []feedStep{
 				{
-					input: "\x1b[2Jclear",
+					input: csi + "2Jclear",
 					want: []tokenExpectation{
-						{kind: TokenCSI, data: "\x1b[2J"},
+						{kind: TokenCSI, data: csi + "2J"},
 						{kind: TokenText, data: "clear"},
 					},
 				},
@@ -94,9 +104,24 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "osc",
 			steps: []feedStep{
 				{
-					input: "\x1b]0;title\x07text",
+					input: osc + "0;title" + bel + "text",
 					want: []tokenExpectation{
-						{kind: TokenOSC, data: "\x1b]0;title\x07"},
+						{kind: TokenOSC, data: osc + "0;title" + bel},
+						{kind: TokenText, data: "text"},
+					},
+				},
+			},
+			flush:      []tokenExpectation{},
+			wantStyled: false,
+			wantInOSC8: false,
+		},
+		{
+			name: "osc-esc-bel",
+			steps: []feedStep{
+				{
+					input: osc + "0;title" + esc + bel + "more" + bel + "text",
+					want: []tokenExpectation{
+						{kind: TokenOSC, data: osc + "0;title" + esc + bel + "more" + bel},
 						{kind: TokenText, data: "text"},
 					},
 				},
@@ -109,11 +134,11 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "osc8-st",
 			steps: []feedStep{
 				{
-					input: "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\",
+					input: osc + "8;;https://example.com" + st + "link" + osc + "8;;" + st,
 					want: []tokenExpectation{
-						{kind: TokenOSC8, data: "\x1b]8;;https://example.com\x1b\\"},
+						{kind: TokenOSC8, data: osc + "8;;https://example.com" + st},
 						{kind: TokenText, data: "link"},
-						{kind: TokenOSC8, data: "\x1b]8;;\x1b\\", isEnd: true},
+						{kind: TokenOSC8, data: osc + "8;;" + st, isEnd: true},
 					},
 				},
 			},
@@ -125,9 +150,9 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "osc8-bel",
 			steps: []feedStep{
 				{
-					input: "\x1b]8;;https://example.com\x07link",
+					input: osc + "8;;https://example.com" + bel + "link",
 					want: []tokenExpectation{
-						{kind: TokenOSC8, data: "\x1b]8;;https://example.com\x07"},
+						{kind: TokenOSC8, data: osc + "8;;https://example.com" + bel},
 						{kind: TokenText, data: "link"},
 					},
 				},
@@ -140,13 +165,13 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "chunked-sgr",
 			steps: []feedStep{
 				{
-					input: "text\x1b[38;2;136;136",
+					input: "text" + csi + "38;2;136;136",
 					want:  []tokenExpectation{{kind: TokenText, data: "text"}},
 				},
 				{
 					input: ";136mmore",
 					want: []tokenExpectation{
-						{kind: TokenSGR, data: "\x1b[38;2;136;136;136m", styled: true},
+						{kind: TokenSGR, data: csi + "38;2;136;136;136m", styled: true},
 						{kind: TokenText, data: "more"},
 					},
 				},
@@ -159,13 +184,13 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "chunked-esc",
 			steps: []feedStep{
 				{
-					input: "abc\x1b",
+					input: "abc" + esc,
 					want:  []tokenExpectation{{kind: TokenText, data: "abc"}},
 				},
 				{
 					input: "[31mred",
 					want: []tokenExpectation{
-						{kind: TokenSGR, data: "\x1b[31m", styled: true},
+						{kind: TokenSGR, data: csi + "31m", styled: true},
 						{kind: TokenText, data: "red"},
 					},
 				},
@@ -178,11 +203,11 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "flush-csi",
 			steps: []feedStep{
 				{
-					input: "text\x1b[38;2;136",
+					input: "text" + csi + "38;2;136",
 					want:  []tokenExpectation{{kind: TokenText, data: "text"}},
 				},
 			},
-			flush:      []tokenExpectation{{kind: TokenCSI, data: "\x1b[38;2;136", styled: true}},
+			flush:      []tokenExpectation{{kind: TokenCSI, data: csi + "38;2;136", styled: true}},
 			wantStyled: true,
 			wantInOSC8: false,
 		},
@@ -190,11 +215,11 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "flush-esc",
 			steps: []feedStep{
 				{
-					input: "text\x1b",
+					input: "text" + esc,
 					want:  []tokenExpectation{{kind: TokenText, data: "text"}},
 				},
 			},
-			flush:      []tokenExpectation{{kind: TokenESC, data: "\x1b"}},
+			flush:      []tokenExpectation{{kind: TokenESC, data: esc}},
 			wantStyled: false,
 			wantInOSC8: false,
 		},
@@ -202,9 +227,24 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "dcs",
 			steps: []feedStep{
 				{
-					input: "\x1bPdata\x1b\\text",
+					input: dcs + "data" + st + "text",
 					want: []tokenExpectation{
-						{kind: TokenDCS, data: "\x1bPdata\x1b\\"},
+						{kind: TokenDCS, data: dcs + "data" + st},
+						{kind: TokenText, data: "text"},
+					},
+				},
+			},
+			flush:      []tokenExpectation{},
+			wantStyled: false,
+			wantInOSC8: false,
+		},
+		{
+			name: "dcs-bel",
+			steps: []feedStep{
+				{
+					input: dcs + "data" + bel + "text",
+					want: []tokenExpectation{
+						{kind: TokenDCS, data: dcs + "data" + bel},
 						{kind: TokenText, data: "text"},
 					},
 				},
@@ -217,11 +257,11 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "esc",
 			steps: []feedStep{
 				{
-					input: "\x1b7text\x1b8",
+					input: esc + "7text" + esc + "8",
 					want: []tokenExpectation{
-						{kind: TokenESC, data: "\x1b7"},
+						{kind: TokenESC, data: esc + "7"},
 						{kind: TokenText, data: "text"},
-						{kind: TokenESC, data: "\x1b8"},
+						{kind: TokenESC, data: esc + "8"},
 					},
 				},
 			},
@@ -233,9 +273,9 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "invalid-csi",
 			steps: []feedStep{
 				{
-					input: "\x1b[\x00text",
+					input: csi + nul + "text",
 					want: []tokenExpectation{
-						{kind: TokenCSI, data: "\x1b[\x00"},
+						{kind: TokenCSI, data: csi + nul},
 						{kind: TokenText, data: "text"},
 					},
 				},
@@ -248,10 +288,10 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			name: "multiple-sgr",
 			steps: []feedStep{
 				{
-					input: "\x1b[1m\x1b[31mtext",
+					input: csi + "1m" + csi + "31mtext",
 					want: []tokenExpectation{
-						{kind: TokenSGR, data: "\x1b[1m", styled: true},
-						{kind: TokenSGR, data: "\x1b[31m", styled: true},
+						{kind: TokenSGR, data: csi + "1m", styled: true},
+						{kind: TokenSGR, data: csi + "31m", styled: true},
 						{kind: TokenText, data: "text"},
 					},
 				},
@@ -349,7 +389,7 @@ func TestAnsiTokenizerBufferOverflow(t *testing.T) {
 			name: "osc-overflow",
 			input: func() []byte {
 				b := make([]byte, maxBufferSize+100)
-				b[0] = 0x1b
+				b[0] = escByte
 				b[1] = ']'
 				for i := 2; i < len(b); i++ {
 					b[i] = 'x'

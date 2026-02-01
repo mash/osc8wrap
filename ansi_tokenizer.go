@@ -33,6 +33,11 @@ const (
 	stateDCS                      // Inside DCS/APC/PM sequence, waiting for ST
 )
 
+const (
+	escByte = 0x1b
+	belByte = 0x07
+)
+
 // maxBufferSize limits buffer growth for unterminated OSC/DCS sequences.
 // If exceeded, the incomplete sequence is emitted as TokenOther and parsing resets.
 const maxBufferSize = 4096
@@ -59,7 +64,7 @@ func (t *AnsiTokenizer) Feed(p []byte) []Token {
 
 		switch t.state {
 		case stateGround:
-			if b == 0x1b {
+			if b == escByte {
 				if len(t.buf) > 0 {
 					tokens = append(tokens, Token{Kind: TokenText, Data: t.copyBuf()})
 					t.buf = t.buf[:0]
@@ -99,25 +104,22 @@ func (t *AnsiTokenizer) Feed(p []byte) []Token {
 			}
 
 		case stateOSC:
+			t.buf = append(t.buf, b)
 			switch b {
-			case 0x07:
-				t.buf = append(t.buf, b)
+			case belByte:
 				tok := t.emitOSC()
 				tokens = append(tokens, tok)
 				t.buf = t.buf[:0]
 				t.state = stateGround
-			case 0x1b:
-				t.buf = append(t.buf, b)
+			case escByte:
 				t.prevState = stateOSC
 				t.state = stateSTCandidate
-			default:
-				t.buf = append(t.buf, b)
 			}
 
 		case stateSTCandidate:
 			t.buf = append(t.buf, b)
 			switch b {
-			case '\\', 0x07:
+			case '\\':
 				if t.prevState == stateDCS {
 					tokens = append(tokens, Token{Kind: TokenDCS, Data: t.copyBuf()})
 				} else {
@@ -131,17 +133,16 @@ func (t *AnsiTokenizer) Feed(p []byte) []Token {
 			}
 
 		case stateDCS:
+			t.buf = append(t.buf, b)
 			switch b {
-			case 0x1b:
-				t.buf = append(t.buf, b)
+			case escByte:
 				t.prevState = stateDCS
 				t.state = stateSTCandidate
-			case 0x07:
+			case belByte:
 				tokens = append(tokens, Token{Kind: TokenDCS, Data: t.copyBuf()})
 				t.buf = t.buf[:0]
 				t.state = stateGround
 			default:
-				t.buf = append(t.buf, b)
 			}
 		}
 
@@ -204,7 +205,7 @@ func (t *AnsiTokenizer) inferIncompleteKind() TokenKind {
 	if len(t.buf) == 0 {
 		return TokenText
 	}
-	if t.buf[0] != 0x1b {
+	if t.buf[0] != escByte {
 		return TokenText
 	}
 	if len(t.buf) == 1 {
@@ -260,9 +261,9 @@ func extractOSCData(data []byte) []byte {
 	}
 
 	end := len(data)
-	if end > 0 && data[end-1] == 0x07 {
+	if end > 0 && data[end-1] == belByte {
 		end--
-	} else if end >= 2 && data[end-2] == 0x1b && data[end-1] == '\\' {
+	} else if end >= 2 && data[end-2] == escByte && data[end-1] == '\\' {
 		end -= 2
 	}
 

@@ -39,9 +39,9 @@ type Linker struct {
 	symbolLinks     bool
 	debugFile       *os.File
 	writeSeq        int
-	tokenizer *AnsiTokenizer
-	styled    bool // true when inside SGR-styled text; enables symbol linking
-	inOSC8    bool // true when inside OSC8 hyperlink; disables all processing
+	tokenizer       *AnsiTokenizer
+	styled          bool // true when inside SGR-styled text; enables symbol linking
+	inOSC8          bool // true when inside OSC8 hyperlink; disables all processing
 }
 
 func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
@@ -147,8 +147,8 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 	}
 
 	if l.debugFile != nil {
-		fmt.Fprintf(l.debugFile, "Output: %q\n\n", result.Bytes())
-		l.debugFile.Sync()
+		_, _ = fmt.Fprintf(l.debugFile, "Output: %q\n\n", result.Bytes())
+		_ = l.debugFile.Sync()
 	}
 
 	_, err = l.output.Write(result.Bytes())
