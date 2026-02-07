@@ -19,10 +19,28 @@ func TestLinker_Write(t *testing.T) {
 	if err := os.WriteFile(makefile, []byte("test"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	percentFile := filepath.Join(tmpDir, "2009-06-13-%e3%81%8a%e3%81%99%e3%81%99%e3%82%81.md")
+	if err := os.WriteFile(percentFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	atFile := filepath.Join(tmpDir, "@scope", "package.json")
+	if err := os.MkdirAll(filepath.Join(tmpDir, "@scope"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(atFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	plusFile := filepath.Join(tmpDir, "c++.txt")
+	if err := os.WriteFile(plusFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 	testFile, _ = filepath.EvalSymlinks(testFile)
 	makefile, _ = filepath.EvalSymlinks(makefile)
+	percentFile, _ = filepath.EvalSymlinks(percentFile)
+	atFile, _ = filepath.EvalSymlinks(atFile)
+	plusFile, _ = filepath.EvalSymlinks(plusFile)
 
 	hostname := "testhost"
 
@@ -157,6 +175,24 @@ func TestLinker_Write(t *testing.T) {
 			input:    "--- a/nonexistent.go\n",
 			cwd:      tmpDir,
 			expected: "--- a/nonexistent.go\n",
+		},
+		{
+			name:     "path with percent-encoded characters",
+			input:    "│ file: 2009-06-13-%e3%81%8a%e3%81%99%e3%81%99%e3%82%81.md\n",
+			cwd:      tmpDir,
+			expected: "│ file: \x1b]8;;file://testhost" + percentFile + "\x1b\\2009-06-13-%e3%81%8a%e3%81%99%e3%81%99%e3%82%81.md\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "path with @ character",
+			input:    "error in @scope/package.json\n",
+			cwd:      tmpDir,
+			expected: "error in \x1b]8;;file://testhost" + atFile + "\x1b\\@scope/package.json\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "path with + character",
+			input:    "found c++.txt\n",
+			cwd:      tmpDir,
+			expected: "found \x1b]8;;file://testhost" + plusFile + "\x1b\\c++.txt\x1b]8;;\x1b\\\n",
 		},
 	}
 

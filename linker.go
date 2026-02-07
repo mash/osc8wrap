@@ -107,11 +107,11 @@ func (l *Linker) buildPattern() *regexp.Regexp {
 
 	// file path pattern
 	pattern += `|` +
-		`(?:^|[^/\w.-]|\x1b\[[0-9;]*m)` + // boundary: start of line, non-path char, or ANSI SGR
+		`(?:^|[^/\w.%+@-]|\x1b\[[0-9;]*m)` + // boundary: start of line, non-path char, or ANSI SGR
 		`(` + // group 3: path
-		`(?:~|\.{0,2})/[\w./-]+(?:\.\w+)?` + // starts with ~/, /, ./, or ../: extension optional
+		`(?:~|\.{0,2})/[\w./%+@-]+(?:\.\w+)?` + // starts with ~/, /, ./, or ../: extension optional
 		`|` +
-		`[\w./-]+\.\w+` + // no path prefix: extension required
+		`[\w./%+@-]+\.\w+` + // no path prefix: extension required
 		`|` +
 		`\w+file` + // files ending with "file" (Makefile, Dockerfile, etc.)
 		`)` +
