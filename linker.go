@@ -459,7 +459,7 @@ func (l *Linker) wrapSymbol(prefix, symbol []byte, isFunction bool) []byte {
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;")
 	buf.WriteString(l.scheme)
-	buf.WriteString("://mash.symbol-opener?symbol=")
+	buf.WriteString("://maaashjp.symbol-opener?symbol=")
 	buf.Write(symbol)
 	buf.WriteString("&cwd=")
 	buf.WriteString(l.cwd)

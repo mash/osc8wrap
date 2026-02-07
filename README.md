@@ -144,7 +144,7 @@ When using an editor scheme (not `file`), osc8wrap detects symbol names in ANSI-
 
 - Only activates inside SGR-styled text segments (e.g., colored compiler output, Claude Code, Codex CLI)
 - Detects identifiers with 3+ characters (letters, digits, underscores)
-- Links to `{scheme}://mash.symbol-opener?symbol=NAME&cwd=CWD`
+- Links to `{scheme}://maaashjp.symbol-opener?symbol=NAME&cwd=CWD`
 - If followed by `()`, adds `&kind=Function` to the URL
 
 **Requirements:**
