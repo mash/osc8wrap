@@ -1,6 +1,8 @@
 # osc8wrap
 
-A CLI tool that wraps any command and converts file paths and URLs in output to clickable [OSC 8 hyperlinks](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda).
+A CLI tool that wraps any command and converts file paths, URLs, and symbol names in output to clickable [OSC 8 hyperlinks](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda).
+
+[![Demo](https://img.youtube.com/vi/GP5TwKnCzhQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=GP5TwKnCzhQ)
 
 ## Installation
 
