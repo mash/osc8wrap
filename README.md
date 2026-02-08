@@ -44,9 +44,6 @@ Options can also be set via environment variables. CLI flags take precedence.
 ### Examples
 
 ```bash
-# Make file paths in build errors clickable
-osc8wrap go build ./...
-
 # Make grep results clickable
 osc8wrap grep -rn "TODO" .
 
@@ -54,7 +51,7 @@ osc8wrap grep -rn "TODO" .
 osc8wrap claude
 
 # Use vscode:// scheme to open files in VS Code at specific line
-osc8wrap --scheme=vscode go build ./...
+osc8wrap --scheme=vscode go test ./...
 
 # Set default scheme via environment variable
 export OSC8WRAP_SCHEME=cursor
