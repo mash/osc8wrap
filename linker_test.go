@@ -956,6 +956,12 @@ func TestLinker_SymbolLinks(t *testing.T) {
 			symbolLinks: true,
 			expected:    "Foo\x1b[31m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=Bar&cwd=" + tmpDir + "\x1b\\Bar\x1b]8;;\x1b\\\x1b[0mBaz\n",
 		},
+		{
+			name:        "dotted identifier falls back to symbol linking",
+			input:       "\x1b[31mProgressLocation.Window\x1b[0m\n",
+			symbolLinks: true,
+			expected:    "\x1b[31m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=ProgressLocation&cwd=" + tmpDir + "\x1b\\ProgressLocation\x1b]8;;\x1b\\.\x1b]8;;cursor://maaashjp.symbol-opener?symbol=Window&cwd=" + tmpDir + "\x1b\\Window\x1b]8;;\x1b\\\x1b[0m\n",
+		},
 	}
 
 	for _, tt := range tests {

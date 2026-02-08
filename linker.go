@@ -239,7 +239,12 @@ func (l *Linker) processTextWithState(data []byte, styled, inOSC8 bool) []byte {
 		if replacement, ok := l.wrapFilePath(prefix, pathPart, locSuffix, displayText); ok {
 			result.Write(replacement)
 		} else {
-			result.Write(data[fullStart:fullEnd])
+			segment := data[fullStart:fullEnd]
+			if l.symbolLinks && styled {
+				result.Write(l.replaceSymbolsStyledSegment(segment))
+			} else {
+				result.Write(segment)
+			}
 		}
 		last = fullEnd
 	}
