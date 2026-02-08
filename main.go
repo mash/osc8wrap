@@ -87,12 +87,12 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 	opts.Terminator = os.Getenv("OSC8WRAP_TERMINATOR")
 	opts.Domains = []string{"github.com"}
 	if env := os.Getenv("OSC8WRAP_DOMAINS"); env != "" {
-		opts.Domains = splitDomains(env)
+		opts.Domains = splitComma(env)
 	}
 	opts.ResolveBasename = os.Getenv("OSC8WRAP_NO_RESOLVE_BASENAME") != "1"
 	opts.ExcludeDirs = defaultExcludeDirs
 	if env := os.Getenv("OSC8WRAP_EXCLUDE_DIRS"); env != "" {
-		opts.ExcludeDirs = splitDomains(env)
+		opts.ExcludeDirs = splitComma(env)
 	}
 	noSymbolLinks := os.Getenv("OSC8WRAP_NO_SYMBOL_LINKS") == "1"
 
@@ -102,11 +102,11 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 		} else if v, ok := strings.CutPrefix(arg, "--terminator="); ok {
 			opts.Terminator = v
 		} else if v, ok := strings.CutPrefix(arg, "--domains="); ok {
-			opts.Domains = splitDomains(v)
+			opts.Domains = splitComma(v)
 		} else if arg == "--no-resolve-basename" {
 			opts.ResolveBasename = false
 		} else if v, ok := strings.CutPrefix(arg, "--exclude-dir="); ok {
-			opts.ExcludeDirs = splitDomains(v)
+			opts.ExcludeDirs = splitComma(v)
 		} else if arg == "--no-symbol-links" {
 			noSymbolLinks = true
 		} else if arg == "--debug-writes" {
@@ -133,7 +133,7 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string) {
 	return
 }
 
-func splitDomains(s string) []string {
+func splitComma(s string) []string {
 	if s == "" {
 		return nil
 	}
