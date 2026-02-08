@@ -415,10 +415,26 @@ func (l *Linker) WaitForIndex(ctx context.Context) error {
 	return l.index.Wait(ctx)
 }
 
+// replaceSymbolsStyledSegment links identifiers in a styled text segment.
+// It tracks dot-separated chains (e.g. "vscode.window.showMessage") so that
+// each word's link carries the full qualified name up to that point, helping
+// symbol-opener disambiguate common names like "Window".
 func (l *Linker) replaceSymbolsStyledSegment(data []byte) []byte {
 	var result bytes.Buffer
+	// qualifiedName accumulates the dot-separated chain seen so far,
+	// e.g. "ProgressLocation" → "ProgressLocation.Window"
+	var qualifiedName []byte
 	for i := 0; i < len(data); {
 		if !isWordChar(data[i]) {
+			// A dot between two words continues the qualified chain
+			// rather than resetting it, so "Foo.Bar" links Bar as "Foo.Bar".
+			if data[i] == '.' && len(qualifiedName) > 0 && i+1 < len(data) && isWordChar(data[i+1]) {
+				result.WriteByte('.')
+				qualifiedName = append(qualifiedName, '.')
+				i++
+				continue
+			}
+			qualifiedName = qualifiedName[:0]
 			result.WriteByte(data[i])
 			i++
 			continue
@@ -429,10 +445,12 @@ func (l *Linker) replaceSymbolsStyledSegment(data []byte) []byte {
 			i++
 		}
 		word := data[start:i]
+		qualifiedName = append(qualifiedName, word...)
 
 		if len(word) >= 3 {
 			isFunction := i < len(data) && data[i] == '('
-			result.Write(l.wrapSymbol(nil, word, isFunction))
+			// word is the display text; qualifiedName is used in the URL
+			result.Write(l.wrapSymbol(nil, word, qualifiedName, isFunction))
 		} else {
 			result.Write(word)
 		}
@@ -459,7 +477,13 @@ func submatch(match []int, group int) (start, end int, ok bool) {
 	return start, end, true
 }
 
-func (l *Linker) wrapSymbol(prefix, symbol []byte, isFunction bool) []byte {
+// wrapSymbol wraps display text in an OSC 8 hyperlink pointing to symbol-opener.
+// display is the visible text and symbol is used in the URL query parameter.
+// They differ for qualified names: for "ProgressLocation.Window", the second
+// word is wrapped with display="Window" and symbol="ProgressLocation.Window".
+//
+// Returns: {prefix}ESC]8;;{scheme}://maaashjp.symbol-opener?symbol={symbol}&cwd={cwd}[&kind=Function]ST{display}ESC]8;;ST
+func (l *Linker) wrapSymbol(prefix, display, symbol []byte, isFunction bool) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
 	buf.WriteString("\x1b]8;;")
@@ -472,7 +496,7 @@ func (l *Linker) wrapSymbol(prefix, symbol []byte, isFunction bool) []byte {
 		buf.WriteString("&kind=Function")
 	}
 	buf.WriteString(l.st())
-	buf.Write(symbol)
+	buf.Write(display)
 	buf.WriteString("\x1b]8;;")
 	buf.WriteString(l.st())
 	return buf.Bytes()

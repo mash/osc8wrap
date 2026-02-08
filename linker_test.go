@@ -960,7 +960,7 @@ func TestLinker_SymbolLinks(t *testing.T) {
 			name:        "dotted identifier falls back to symbol linking",
 			input:       "\x1b[31mProgressLocation.Window\x1b[0m\n",
 			symbolLinks: true,
-			expected:    "\x1b[31m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=ProgressLocation&cwd=" + tmpDir + "\x1b\\ProgressLocation\x1b]8;;\x1b\\.\x1b]8;;cursor://maaashjp.symbol-opener?symbol=Window&cwd=" + tmpDir + "\x1b\\Window\x1b]8;;\x1b\\\x1b[0m\n",
+			expected:    "\x1b[31m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=ProgressLocation&cwd=" + tmpDir + "\x1b\\ProgressLocation\x1b]8;;\x1b\\.\x1b]8;;cursor://maaashjp.symbol-opener?symbol=ProgressLocation.Window&cwd=" + tmpDir + "\x1b\\Window\x1b]8;;\x1b\\\x1b[0m\n",
 		},
 	}
 
