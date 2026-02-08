@@ -58,7 +58,7 @@ func run() int {
 	opts.Cwd = cwd
 	opts.Hostname = hostname
 
-	linker := NewLinkerWithOptions(opts)
+	linker := NewLinker(opts)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

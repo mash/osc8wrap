@@ -44,18 +44,7 @@ type Linker struct {
 	inOSC8          bool // true when inside OSC8 hyperlink; disables all processing
 }
 
-func NewLinker(output io.Writer, cwd, hostname, scheme string, domains []string) *Linker {
-	return NewLinkerWithOptions(LinkerOptions{
-		Output:          output,
-		Cwd:             cwd,
-		Hostname:        hostname,
-		Scheme:          scheme,
-		Domains:         domains,
-		ResolveBasename: false,
-	})
-}
-
-func NewLinkerWithOptions(opts LinkerOptions) *Linker {
+func NewLinker(opts LinkerOptions) *Linker {
 	scheme := opts.Scheme
 	if scheme == "" {
 		scheme = "file"
@@ -299,15 +288,21 @@ func (l *Linker) st() string {
 	return "\x1b\\"
 }
 
+func (l *Linker) osc8Link(url string, display []byte) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(url)
+	buf.WriteString(l.st())
+	buf.Write(display)
+	buf.WriteString("\x1b]8;;")
+	buf.WriteString(l.st())
+	return buf.Bytes()
+}
+
 func (l *Linker) wrapFile(prefix []byte, absPath, locSuffix string, displayText []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
-	buf.WriteString("\x1b]8;;")
-	buf.WriteString(l.formatFileURL(absPath, locSuffix))
-	buf.WriteString(l.st())
-	buf.Write(displayText)
-	buf.WriteString("\x1b]8;;")
-	buf.WriteString(l.st())
+	buf.Write(l.osc8Link(l.formatFileURL(absPath, locSuffix), displayText))
 	return buf.Bytes()
 }
 
@@ -332,14 +327,7 @@ func normalizeLocSuffix(s string) string {
 
 func (l *Linker) wrapURL(url []byte) ([]byte, []byte) {
 	url, suffix := trimURLSuffix(url)
-	var buf bytes.Buffer
-	buf.WriteString("\x1b]8;;")
-	buf.Write(url)
-	buf.WriteString(l.st())
-	buf.Write(url)
-	buf.WriteString("\x1b]8;;")
-	buf.WriteString(l.st())
-	return buf.Bytes(), suffix
+	return l.osc8Link(string(url), url), suffix
 }
 
 func trimURLSuffix(url []byte) ([]byte, []byte) {
@@ -355,12 +343,7 @@ func trimURLSuffix(url []byte) ([]byte, []byte) {
 func (l *Linker) wrapBareDomain(prefix, domain []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
-	buf.WriteString("\x1b]8;;https://")
-	buf.Write(domain)
-	buf.WriteString(l.st())
-	buf.Write(domain)
-	buf.WriteString("\x1b]8;;")
-	buf.WriteString(l.st())
+	buf.Write(l.osc8Link("https://"+string(domain), domain))
 	return buf.Bytes()
 }
 
@@ -484,20 +467,18 @@ func submatch(match []int, group int) (start, end int, ok bool) {
 //
 // Returns: {prefix}ESC]8;;{scheme}://maaashjp.symbol-opener?symbol={symbol}&cwd={cwd}[&kind=Function]ST{display}ESC]8;;ST
 func (l *Linker) wrapSymbol(prefix, display, symbol []byte, isFunction bool) []byte {
+	var urlBuf bytes.Buffer
+	urlBuf.WriteString(l.scheme)
+	urlBuf.WriteString("://maaashjp.symbol-opener?symbol=")
+	urlBuf.Write(symbol)
+	urlBuf.WriteString("&cwd=")
+	urlBuf.WriteString(l.cwd)
+	if isFunction {
+		urlBuf.WriteString("&kind=Function")
+	}
+
 	var buf bytes.Buffer
 	buf.Write(prefix)
-	buf.WriteString("\x1b]8;;")
-	buf.WriteString(l.scheme)
-	buf.WriteString("://maaashjp.symbol-opener?symbol=")
-	buf.Write(symbol)
-	buf.WriteString("&cwd=")
-	buf.WriteString(l.cwd)
-	if isFunction {
-		buf.WriteString("&kind=Function")
-	}
-	buf.WriteString(l.st())
-	buf.Write(display)
-	buf.WriteString("\x1b]8;;")
-	buf.WriteString(l.st())
+	buf.Write(l.osc8Link(urlBuf.String(), display))
 	return buf.Bytes()
 }

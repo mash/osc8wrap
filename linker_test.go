@@ -199,7 +199,13 @@ func TestLinker_Write(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tt.cwd, hostname, "file", []string{"github.com"})
+			linker := NewLinker(LinkerOptions{
+				Output:   &buf,
+				Cwd:      tt.cwd,
+				Hostname: hostname,
+				Scheme:   "file",
+				Domains:  []string{"github.com"},
+			})
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
@@ -222,7 +228,13 @@ func TestLinker_OutputsImmediately(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
+	linker := NewLinker(LinkerOptions{
+		Output:   &buf,
+		Cwd:      tmpDir,
+		Hostname: hostname,
+		Scheme:   "file",
+		Domains:  []string{"github.com"},
+	})
 
 	_, _ = linker.Write([]byte("first line\nsecond "))
 	if got := buf.String(); got != "first line\nsecond " {
@@ -241,7 +253,13 @@ func TestLinker_OutputsWithoutNewline(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
+	linker := NewLinker(LinkerOptions{
+		Output:   &buf,
+		Cwd:      tmpDir,
+		Hostname: hostname,
+		Scheme:   "file",
+		Domains:  []string{"github.com"},
+	})
 
 	_, _ = linker.Write([]byte("no newline"))
 	if got := buf.String(); got != "no newline" {
@@ -319,7 +337,13 @@ func TestLinker_Schemes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tmpDir, hostname, tt.scheme, []string{"github.com"})
+			linker := NewLinker(LinkerOptions{
+				Output:   &buf,
+				Cwd:      tmpDir,
+				Hostname: hostname,
+				Scheme:   tt.scheme,
+				Domains:  []string{"github.com"},
+			})
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
@@ -396,7 +420,13 @@ func TestLinker_BareDomains(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tmpDir, hostname, "file", tt.domains)
+			linker := NewLinker(LinkerOptions{
+				Output:   &buf,
+				Cwd:      tmpDir,
+				Hostname: hostname,
+				Scheme:   "file",
+				Domains:  tt.domains,
+			})
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
@@ -445,7 +475,7 @@ func TestLinker_BasenameResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinkerWithOptions(LinkerOptions{
+			linker := NewLinker(LinkerOptions{
 				Output:          &buf,
 				Cwd:             tmpDir,
 				Hostname:        hostname,
@@ -488,7 +518,7 @@ func TestLinker_SuffixMatch(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	linker := NewLinkerWithOptions(LinkerOptions{
+	linker := NewLinker(LinkerOptions{
 		Output:          &buf,
 		Cwd:             tmpDir,
 		Hostname:        hostname,
@@ -545,7 +575,7 @@ func TestLinker_MtimePriority(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	linker := NewLinkerWithOptions(LinkerOptions{
+	linker := NewLinker(LinkerOptions{
 		Output:          &buf,
 		Cwd:             tmpDir,
 		Hostname:        hostname,
@@ -588,7 +618,7 @@ func TestLinker_IndexNotReady(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	linker := NewLinkerWithOptions(LinkerOptions{
+	linker := NewLinker(LinkerOptions{
 		Output:          &buf,
 		Cwd:             tmpDir,
 		Hostname:        hostname,
@@ -624,7 +654,7 @@ func TestLinker_ResolveBasenameDisabled(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	linker := NewLinkerWithOptions(LinkerOptions{
+	linker := NewLinker(LinkerOptions{
 		Output:          &buf,
 		Cwd:             tmpDir,
 		Hostname:        hostname,
@@ -699,7 +729,13 @@ func TestLinker_TildePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinker(&buf, tmpDir, hostname, "file", []string{"github.com"})
+			linker := NewLinker(LinkerOptions{
+				Output:   &buf,
+				Cwd:      tmpDir,
+				Hostname: hostname,
+				Scheme:   "file",
+				Domains:  []string{"github.com"},
+			})
 
 			_, err := linker.Write([]byte(tt.input))
 			if err != nil {
@@ -719,7 +755,7 @@ func TestLinker_FsnotifyNewFile(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinkerWithOptions(LinkerOptions{
+	linker := NewLinker(LinkerOptions{
 		Output:          &buf,
 		Cwd:             tmpDir,
 		Hostname:        hostname,
@@ -792,7 +828,7 @@ func TestLinker_Terminator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinkerWithOptions(LinkerOptions{
+			linker := NewLinker(LinkerOptions{
 				Output:     &buf,
 				Cwd:        tmpDir,
 				Hostname:   hostname,
@@ -967,7 +1003,7 @@ func TestLinker_SymbolLinks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			linker := NewLinkerWithOptions(LinkerOptions{
+			linker := NewLinker(LinkerOptions{
 				Output:      &buf,
 				Cwd:         tmpDir,
 				Hostname:    hostname,
@@ -1000,7 +1036,7 @@ func TestLinker_SymbolLinksWithFilePaths(t *testing.T) {
 	hostname := "testhost"
 
 	var buf bytes.Buffer
-	linker := NewLinkerWithOptions(LinkerOptions{
+	linker := NewLinker(LinkerOptions{
 		Output:      &buf,
 		Cwd:         tmpDir,
 		Hostname:    hostname,
