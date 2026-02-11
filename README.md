@@ -4,6 +4,8 @@ A CLI tool that wraps any command and converts file paths, URLs, and symbol name
 
 [![Demo](https://img.youtube.com/vi/GP5TwKnCzhQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=GP5TwKnCzhQ)
 
+[▶ Watch demo](https://www.youtube.com/watch?v=GP5TwKnCzhQ)
+
 ## Installation
 
 ### From source
