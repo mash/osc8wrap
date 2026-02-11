@@ -41,8 +41,9 @@ type Linker struct {
 	debugFile       *os.File
 	writeSeq        int
 	tokenizer       *AnsiTokenizer
-	styled          bool // true when inside SGR-styled text; enables symbol linking
-	inOSC8          bool // true when inside OSC8 hyperlink; disables all processing
+	styled          bool   // true when inside SGR-styled text; enables symbol linking
+	inOSC8          bool   // true when inside OSC8 hyperlink; disables all processing
+	pendingWord     []byte // trailing word chars from previous Write, awaiting continuation
 }
 
 func NewLinker(opts LinkerOptions) *Linker {
@@ -126,15 +127,32 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 	for _, tok := range tokens {
 		switch tok.Kind {
 		case TokenText:
-			processed := l.processTextWithState(tok.Data, l.styled, l.inOSC8)
-			result.Write(processed)
+			data := tok.Data
+			if len(l.pendingWord) > 0 {
+				data = append(l.pendingWord, data...)
+				l.pendingWord = nil
+			}
+			if l.symbolLinks && l.styled && !l.inOSC8 {
+				head, tail := splitTrailingWord(data)
+				if len(tail) > 0 {
+					l.pendingWord = make([]byte, len(tail))
+					copy(l.pendingWord, tail)
+				}
+				data = head
+			}
+			if len(data) > 0 {
+				result.Write(l.processTextWithState(data, l.styled, l.inOSC8))
+			}
 		case TokenSGR:
+			l.flushPendingWord(&result)
 			result.Write(tok.Data)
 			l.styled = tok.Styled
 		case TokenOSC8:
+			l.flushPendingWord(&result)
 			result.Write(tok.Data)
 			l.inOSC8 = !tok.IsEnd
 		default:
+			l.flushPendingWord(&result)
 			result.Write(tok.Data)
 		}
 	}
@@ -151,12 +169,40 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (l *Linker) Flush() error {
-	tokens := l.tokenizer.Flush()
-	for _, tok := range tokens {
-		if _, err := l.output.Write(tok.Data); err != nil {
-			return err
+func (l *Linker) flushPendingWord(buf *bytes.Buffer) {
+	if len(l.pendingWord) == 0 {
+		return
+	}
+	buf.Write(l.processTextWithState(l.pendingWord, l.styled, l.inOSC8))
+	l.pendingWord = nil
+}
+
+func splitTrailingWord(data []byte) (head, tail []byte) {
+	end := len(data)
+	for end > 0 {
+		b := data[end-1]
+		if isWordChar(b) {
+			end--
+		} else if b == '.' && end >= 2 && isWordChar(data[end-2]) {
+			// dot between word chars continues a qualified name (e.g. "Foo.Bar.Baz")
+			end--
+		} else {
+			break
 		}
+	}
+	return data[:end], data[end:]
+}
+
+func (l *Linker) Flush() error {
+	var buf bytes.Buffer
+	l.flushPendingWord(&buf)
+
+	for _, tok := range l.tokenizer.Flush() {
+		buf.Write(tok.Data)
+	}
+	if buf.Len() > 0 {
+		_, err := l.output.Write(buf.Bytes())
+		return err
 	}
 	return nil
 }

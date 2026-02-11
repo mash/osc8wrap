@@ -984,6 +984,61 @@ func TestLinker_SymbolLinks(t *testing.T) {
 	})
 }
 
+func TestLinker_SymbolLinksSplitAcrossWrites(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	symLink := func(symbol string) string {
+		return "\x1b]8;;cursor://maaashjp.symbol-opener?symbol=" + symbol + "&cwd=" + tmpDir + "\x1b\\" + symbol + "\x1b]8;;\x1b\\"
+	}
+
+	tests := []struct {
+		name     string
+		writes   []string
+		expected string
+	}{
+		{
+			name:     "word split across two writes",
+			writes:   []string{"\x1b[31mchunkSlotResu", "ltsForUpdating\x1b[0m\n"},
+			expected: "\x1b[31m" + symLink("chunkSlotResultsForUpdating") + "\x1b[0m\n",
+		},
+		{
+			name:     "word not split stays the same",
+			writes:   []string{"\x1b[31mchunkSlotResultsForUpdating\x1b[0m\n"},
+			expected: "\x1b[31m" + symLink("chunkSlotResultsForUpdating") + "\x1b[0m\n",
+		},
+		{
+			name:     "word at end of write followed by space in next write",
+			writes:   []string{"\x1b[31mFoo", " Bar\x1b[0m\n"},
+			expected: "\x1b[31m" + symLink("Foo") + " " + symLink("Bar") + "\x1b[0m\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinker(LinkerOptions{
+				Output:      &buf,
+				Cwd:         tmpDir,
+				Hostname:    "testhost",
+				Scheme:      "cursor",
+				Domains:     []string{"github.com"},
+				SymbolLinks: true,
+			})
+			for _, w := range tt.writes {
+				if _, err := linker.Write([]byte(w)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := linker.Flush(); err != nil {
+				t.Fatal(err)
+			}
+			if got := buf.String(); got != tt.expected {
+				t.Errorf("got  %q\nwant %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestLinker_SymlinkDirResolution(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
