@@ -1,16 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/mash/osc8wrap/symwalk"
 )
 
 type FileInfo struct {
@@ -44,12 +44,7 @@ func NewFileIndex(cwd string, excludeDirs []string) *FileIndex {
 }
 
 func (idx *FileIndex) Start(ctx context.Context) {
-	gitDir := filepath.Join(idx.cwd, ".git")
-	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-		idx.buildFromGit(ctx)
-	} else {
-		idx.buildFromFilesystem(ctx)
-	}
+	idx.buildFromFilesystem(ctx)
 
 	idx.mu.Lock()
 	idx.ready = true
@@ -59,69 +54,26 @@ func (idx *FileIndex) Start(ctx context.Context) {
 	idx.startWatcher(ctx)
 }
 
-func (idx *FileIndex) buildFromGit(ctx context.Context) {
-	cmd := exec.CommandContext(ctx, "git", "ls-files")
-	cmd.Dir = idx.cwd
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		return
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			_ = cmd.Process.Kill()
-			return
-		default:
-		}
-
-		relPath := scanner.Text()
-		absPath := filepath.Join(idx.cwd, relPath)
-		info, err := os.Stat(absPath)
-		if err != nil || info.IsDir() {
-			continue
-		}
-
-		basename := filepath.Base(relPath)
-		idx.mu.Lock()
-		idx.files[basename] = append(idx.files[basename], FileInfo{
-			path:  absPath,
-			mtime: info.ModTime(),
-		})
-		idx.mu.Unlock()
-	}
-
-	_ = cmd.Wait()
-}
-
 func (idx *FileIndex) buildFromFilesystem(ctx context.Context) {
-	_ = filepath.WalkDir(idx.cwd, func(path string, d os.DirEntry, err error) error {
+	_ = symwalk.WalkDir(idx.cwd, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-
 		select {
 		case <-ctx.Done():
 			return filepath.SkipAll
 		default:
 		}
-
 		if d.IsDir() {
 			if idx.excludeSet[d.Name()] {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-
 		basename := filepath.Base(path)
 		idx.mu.Lock()
 		idx.files[basename] = append(idx.files[basename], FileInfo{
@@ -129,7 +81,6 @@ func (idx *FileIndex) buildFromFilesystem(ctx context.Context) {
 			mtime: info.ModTime(),
 		})
 		idx.mu.Unlock()
-
 		return nil
 	})
 }
@@ -198,7 +149,7 @@ func (idx *FileIndex) startWatcher(ctx context.Context) {
 }
 
 func (idx *FileIndex) watchDirRecursive(root string) {
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = symwalk.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -277,7 +228,7 @@ func (idx *FileIndex) handleRemove(path string) {
 }
 
 func (idx *FileIndex) indexDir(dir string) {
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	_ = symwalk.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
