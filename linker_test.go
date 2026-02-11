@@ -49,6 +49,10 @@ func TestLinker_Write(t *testing.T) {
 	if err := os.WriteFile(plusFile, []byte("test"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	japaneseFile := filepath.Join(tmpDir, "【Nature様】重要情報の取扱いに伴うチェック票_記入済み.xlsx")
+	if err := os.WriteFile(japaneseFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 	testFile, _ = filepath.EvalSymlinks(testFile)
@@ -56,6 +60,7 @@ func TestLinker_Write(t *testing.T) {
 	percentFile, _ = filepath.EvalSymlinks(percentFile)
 	atFile, _ = filepath.EvalSymlinks(atFile)
 	plusFile, _ = filepath.EvalSymlinks(plusFile)
+	japaneseFile, _ = filepath.EvalSymlinks(japaneseFile)
 
 	hostname := "testhost"
 
@@ -208,6 +213,24 @@ func TestLinker_Write(t *testing.T) {
 			input:    "found c++.txt\n",
 			cwd:      tmpDir,
 			expected: "found \x1b]8;;file://testhost" + plusFile + "\x1b\\c++.txt\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "Japanese filename absolute path",
+			input:    "open " + japaneseFile + "\n",
+			cwd:      tmpDir,
+			expected: "open \x1b]8;;file://testhost" + japaneseFile + "\x1b\\" + japaneseFile + "\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "Japanese filename with line number",
+			input:    "open " + japaneseFile + ":10\n",
+			cwd:      tmpDir,
+			expected: "open \x1b]8;;file://testhost" + japaneseFile + "\x1b\\" + japaneseFile + ":10\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "non-existent Japanese path not linked",
+			input:    "open " + tmpDir + "/存在しないファイル.xlsx\n",
+			cwd:      tmpDir,
+			expected: "open " + tmpDir + "/存在しないファイル.xlsx\n",
 		},
 	}
 
