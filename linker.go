@@ -72,7 +72,7 @@ func NewLinker(opts LinkerOptions) *Linker {
 	if opts.DebugWrites {
 		dir := filepath.Base(opts.Cwd)
 		ts := time.Now().Format("20060102-150405")
-		name := filepath.Join(os.TempDir(), fmt.Sprintf("osc8wrap-debug-%s-%s.log", dir, ts))
+		name := fmt.Sprintf("/tmp/osc8wrap-debug-%s-%s.log", dir, ts)
 		f, err := os.Create(name)
 		if err == nil {
 			l.debugFile = f
