@@ -984,6 +984,62 @@ func TestLinker_SymbolLinks(t *testing.T) {
 	})
 }
 
+func TestLinker_SymlinkDirResolution(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	hostname := "testhost"
+
+	realDir := filepath.Join(tmpDir, "realdir")
+	if err := os.MkdirAll(realDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	targetFile := filepath.Join(realDir, "target.go")
+	if err := os.WriteFile(targetFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "linkdir")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	linkedFile := filepath.Join(linkDir, "target.go")
+
+	var buf bytes.Buffer
+	linker := NewLinker(LinkerOptions{
+		Output:          &buf,
+		Cwd:             tmpDir,
+		Hostname:        hostname,
+		Scheme:          "file",
+		Domains:         []string{"github.com"},
+		ResolveBasename: true,
+		ExcludeDirs:     []string{},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go linker.StartIndexer(ctx)
+	if err := linker.WaitForIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("basename resolves file inside symlinked dir", func(t *testing.T) {
+		// "linkdir" < "realdir" lexically, so linkdir/target.go is walked
+		// first and wins the same-mtime tie in Resolve.
+		buf.Reset()
+		assertWrite(t, linker,
+			"error in target.go:10\n",
+			"error in \x1b]8;;file://testhost"+linkedFile+"\x1b\\target.go:10\x1b]8;;\x1b\\\n")
+	})
+
+	t.Run("relative path through symlinked dir resolves to real path", func(t *testing.T) {
+		buf.Reset()
+		assertWrite(t, linker,
+			"error in linkdir/target.go:10\n",
+			"error in \x1b]8;;file://testhost"+targetFile+"\x1b\\linkdir/target.go:10\x1b]8;;\x1b\\\n")
+	})
+}
+
 func TestLinker_SymbolLinksWithFilePaths(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "main.go")
