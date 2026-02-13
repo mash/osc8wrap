@@ -43,7 +43,7 @@ type Linker struct {
 	tokenizer       *AnsiTokenizer
 	styled          bool   // true when inside SGR-styled text; enables symbol linking
 	inOSC8          bool   // true when inside OSC8 hyperlink; disables all processing
-	pendingWord     []byte // trailing word chars from previous Write, awaiting continuation
+	pendingWord     []byte // trailing styled token chars from previous Write, awaiting continuation
 }
 
 func NewLinker(opts LinkerOptions) *Linker {
@@ -133,7 +133,7 @@ func (l *Linker) Write(p []byte) (n int, err error) {
 				l.pendingWord = nil
 			}
 			if l.symbolLinks && l.styled && !l.inOSC8 {
-				head, tail := splitTrailingWord(data)
+				head, tail := splitTrailingStyledToken(data)
 				if len(tail) > 0 {
 					l.pendingWord = make([]byte, len(tail))
 					copy(l.pendingWord, tail)
@@ -177,20 +177,34 @@ func (l *Linker) flushPendingWord(buf *bytes.Buffer) {
 	l.pendingWord = nil
 }
 
-func splitTrailingWord(data []byte) (head, tail []byte) {
+func splitTrailingStyledToken(data []byte) (head, tail []byte) {
 	end := len(data)
 	for end > 0 {
 		b := data[end-1]
-		if isWordChar(b) {
-			end--
-		} else if b == '.' && end >= 2 && isWordChar(data[end-2]) {
-			// dot between word chars continues a qualified name (e.g. "Foo.Bar.Baz")
+		if isStyledTrailingTokenChar(b) {
 			end--
 		} else {
 			break
 		}
 	}
 	return data[:end], data[end:]
+}
+
+func isStyledTrailingTokenChar(b byte) bool {
+	// Keep UTF-8 bytes in the pending token so styled non-ASCII file paths
+	// remain intact for file-path matching before symbol fallback.
+	if b >= 0x80 {
+		return true
+	}
+	if isWordChar(b) {
+		return true
+	}
+	switch b {
+	case '.', '/', '-', '%', '+', '@', ':', '~':
+		return true
+	default:
+		return false
+	}
 }
 
 func (l *Linker) Flush() error {

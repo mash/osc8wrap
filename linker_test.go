@@ -24,6 +24,17 @@ func assertWrite(t *testing.T, linker *Linker, input, expected string) {
 	}
 }
 
+func writeTestFileAndResolvePath(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
 func TestLinker_Write(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.go")
@@ -942,6 +953,19 @@ func TestLinker_SymbolLinks(t *testing.T) {
 		})
 	})
 
+	styledPathRel := "docs/plans/20260213-fix-pr-23705-feedback-evaluation.md"
+	styledPathAbs := filepath.Join(tmpDir, styledPathRel)
+	if err := os.MkdirAll(filepath.Dir(styledPathAbs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	styledPathAbs = writeTestFileAndResolvePath(t, styledPathAbs)
+	styledFilenameWithLine := "report-2026-02-13.md:10"
+	styledFilenameAbs := filepath.Join(tmpDir, "report-2026-02-13.md")
+	styledFilenameAbs = writeTestFileAndResolvePath(t, styledFilenameAbs)
+	styledUnicodePathRel := "docs/レポート.md"
+	styledUnicodePathAbs := filepath.Join(tmpDir, styledUnicodePathRel)
+	styledUnicodePathAbs = writeTestFileAndResolvePath(t, styledUnicodePathAbs)
+
 	t.Run("boundaries", func(t *testing.T) {
 		run(t, []testCase{
 			{
@@ -979,6 +1003,24 @@ func TestLinker_SymbolLinks(t *testing.T) {
 				input:       "\x1b[mTestFunc and more\n",
 				symbolLinks: true,
 				expected:    "\x1b[mTestFunc and more\n",
+			},
+			{
+				name:        "styled existing path remains single file link across CSI",
+				input:       "\x1b[38;2;177;185;249m" + styledPathRel + "\x1b[1C\x1b[39m\n",
+				symbolLinks: true,
+				expected:    "\x1b[38;2;177;185;249m\x1b]8;;cursor://file" + styledPathAbs + "\x1b\\" + styledPathRel + "\x1b]8;;\x1b\\\x1b[1C\x1b[39m\n",
+			},
+			{
+				name:        "styled hyphenated basename with line stays file link",
+				input:       "\x1b[38;2;177;185;249m" + styledFilenameWithLine + "\x1b[39m\n",
+				symbolLinks: true,
+				expected:    "\x1b[38;2;177;185;249m\x1b]8;;cursor://file" + styledFilenameAbs + ":10\x1b\\" + styledFilenameWithLine + "\x1b]8;;\x1b\\\x1b[39m\n",
+			},
+			{
+				name:        "styled unicode path stays single file link",
+				input:       "\x1b[38;2;177;185;249m" + styledUnicodePathRel + "\x1b[39m\n",
+				symbolLinks: true,
+				expected:    "\x1b[38;2;177;185;249m\x1b]8;;cursor://file" + styledUnicodePathAbs + "\x1b\\" + styledUnicodePathRel + "\x1b]8;;\x1b\\\x1b[39m\n",
 			},
 		})
 	})
