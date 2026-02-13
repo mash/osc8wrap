@@ -25,6 +25,11 @@ Create a release for osc8wrap.
    make release VERSION=vX.Y.Z
    ```
 
+5. **Push main branch**: Push all commits after release:
+   ```bash
+   git push origin main
+   ```
+
 ## Notes
 
 - Version must have `v` prefix (e.g., v1.0.0)
