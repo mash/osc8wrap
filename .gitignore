@@ -1,5 +1,6 @@
 docs/plans/
 osc8wrap
+osc8wrap-replay
 .worktrees/
 dist/
 .env

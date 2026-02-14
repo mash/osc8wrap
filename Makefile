@@ -2,6 +2,7 @@
 
 build:
 	go build -o osc8wrap .
+	go build -o osc8wrap-replay ./cmd/osc8wrap-replay
 
 test:
 	go test -v ./...
@@ -11,10 +12,12 @@ lint:
 
 clean:
 	rm -f osc8wrap
+	rm -f osc8wrap-replay
 	rm -rf dist
 
 install:
 	go install .
+	go install ./cmd/osc8wrap-replay
 
 release:
 ifndef VERSION
