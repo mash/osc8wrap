@@ -86,6 +86,22 @@ func TestAnsiTokenizerFeed(t *testing.T) {
 			wantInOSC8: false,
 		},
 		{
+			name: "mixed-fg-color-and-bg-reset",
+			steps: []feedStep{
+				{
+					input: csi + "38;5;6;49mGREEN" + csi + "39;49m",
+					want: []tokenExpectation{
+						{kind: TokenSGR, data: csi + "38;5;6;49m", styled: true},
+						{kind: TokenText, data: "GREEN"},
+						{kind: TokenSGR, data: csi + "39;49m"},
+					},
+				},
+			},
+			flush:      []tokenExpectation{},
+			wantStyled: false,
+			wantInOSC8: false,
+		},
+		{
 			name: "csi",
 			steps: []feedStep{
 				{
@@ -333,10 +349,13 @@ func TestSgrSetsStyled(t *testing.T) {
 		{"31;0m", false, true},
 		{"38;5;196", true, true},
 		{"38;2;255;0;0", true, true},
+		{"38;5;6;49", true, true},
 		{"39", false, true},
 		{"49", false, true},
+		{"48;5;6;39", true, true},
 		{"22", false, true},
 		{"1;22", false, true},
+		{"1;3;23", true, true},
 		{"22;1", true, true},
 		{"40", true, true},
 		{"100", true, true},
@@ -348,6 +367,29 @@ func TestSgrSetsStyled(t *testing.T) {
 			t.Errorf("sgrSetsStyled(%q): got (%v, %v), want (%v, %v)",
 				tt.params, styled, explicit, tt.styled, tt.explicit)
 		}
+	}
+}
+
+func TestApplySGRParamsStateful(t *testing.T) {
+	var st sgrState
+
+	if !applySGRParams([]byte("38;5;6"), &st) || !st.styled() {
+		t.Fatal("expected foreground color to enable styled state")
+	}
+	if !applySGRParams([]byte("49"), &st) || !st.styled() {
+		t.Fatal("expected background reset to keep foreground styling active")
+	}
+	if !applySGRParams([]byte("39"), &st) || st.styled() {
+		t.Fatal("expected foreground reset to clear styled state")
+	}
+	if !applySGRParams([]byte("1;3"), &st) || !st.styled() {
+		t.Fatal("expected multiple emphasis flags to enable styled state")
+	}
+	if !applySGRParams([]byte("23"), &st) || !st.styled() {
+		t.Fatal("expected italic reset to keep bold styling active")
+	}
+	if !applySGRParams([]byte("22"), &st) || st.styled() {
+		t.Fatal("expected bold/faint reset to clear remaining emphasis state")
 	}
 }
 

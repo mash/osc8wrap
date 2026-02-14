@@ -18,7 +18,7 @@ const (
 type Token struct {
 	Kind   TokenKind
 	Data   []byte
-	Styled bool // TokenSGR: true if this SGR enables styling (non-reset)
+	Styled bool // TokenSGR: true if styling remains active after this token
 	IsEnd  bool // TokenOSC8: true if this is a link-closing sequence (empty URI)
 }
 
@@ -42,11 +42,39 @@ const (
 // If exceeded, the incomplete sequence is emitted as TokenOther and parsing resets.
 const maxBufferSize = 4096
 
+type sgrState struct {
+	fgActive bool
+	bgActive bool
+	attrs    uint16
+}
+
+const (
+	attrBold uint16 = 1 << iota
+	attrFaint
+	attrItalic
+	attrUnderline
+	attrBlinkSlow
+	attrBlinkRapid
+	attrInverse
+	attrConceal
+	attrStrikethrough
+)
+
+func (s *sgrState) styled() bool {
+	return s.fgActive || s.bgActive || s.attrs != 0
+}
+
+func (s *sgrState) reset() {
+	s.fgActive = false
+	s.bgActive = false
+	s.attrs = 0
+}
+
 type AnsiTokenizer struct {
 	buf       []byte
 	state     state
 	prevState state
-	styled    bool
+	sgr       sgrState
 	inOSC8    bool
 }
 
@@ -171,10 +199,8 @@ func (t *AnsiTokenizer) Flush() []Token {
 
 	if kind == TokenCSI && len(t.buf) >= 2 {
 		params := t.buf[2:]
-		if styled, explicit := sgrSetsStyled(params); explicit {
-			t.styled = styled
-		}
-		tok.Styled = t.styled
+		applySGRParams(params, &t.sgr)
+		tok.Styled = t.sgr.styled()
 	}
 
 	t.buf = t.buf[:0]
@@ -184,7 +210,7 @@ func (t *AnsiTokenizer) Flush() []Token {
 }
 
 func (t *AnsiTokenizer) Styled() bool {
-	return t.styled
+	return t.sgr.styled()
 }
 
 func (t *AnsiTokenizer) InOSC8() bool {
@@ -226,10 +252,8 @@ func (t *AnsiTokenizer) emitCSI() Token {
 	if len(data) >= 3 && data[len(data)-1] == 'm' {
 		tok.Kind = TokenSGR
 		params := data[2 : len(data)-1]
-		if styled, explicit := sgrSetsStyled(params); explicit {
-			t.styled = styled
-		}
-		tok.Styled = t.styled
+		applySGRParams(params, &t.sgr)
+		tok.Styled = t.sgr.styled()
 	}
 
 	return tok
@@ -282,8 +306,15 @@ func isCSIIntermediateByte(b byte) bool {
 }
 
 func sgrSetsStyled(params []byte) (styled bool, explicit bool) {
+	var st sgrState
+	explicit = applySGRParams(params, &st)
+	return st.styled(), explicit
+}
+
+func applySGRParams(params []byte, st *sgrState) (explicit bool) {
 	if len(params) == 0 {
-		return false, true
+		st.reset()
+		return true
 	}
 
 	codes := parseCSIParams(params)
@@ -291,39 +322,81 @@ func sgrSetsStyled(params []byte) (styled bool, explicit bool) {
 		code := codes[i]
 		switch code {
 		case 0:
-			styled = false
+			st.reset()
 			explicit = true
-		case 1, 2, 3, 4, 5, 6, 7, 8, 9:
-			styled = true
+		case 1:
+			st.attrs |= attrBold
 			explicit = true
-		case 22, 23, 24, 25, 27, 28, 29:
-			styled = false
+		case 2:
+			st.attrs |= attrFaint
+			explicit = true
+		case 3:
+			st.attrs |= attrItalic
+			explicit = true
+		case 4:
+			st.attrs |= attrUnderline
+			explicit = true
+		case 5:
+			st.attrs |= attrBlinkSlow
+			explicit = true
+		case 6:
+			st.attrs |= attrBlinkRapid
+			explicit = true
+		case 7:
+			st.attrs |= attrInverse
+			explicit = true
+		case 8:
+			st.attrs |= attrConceal
+			explicit = true
+		case 9:
+			st.attrs |= attrStrikethrough
+			explicit = true
+		case 22:
+			st.attrs &^= attrBold | attrFaint
+			explicit = true
+		case 23:
+			st.attrs &^= attrItalic
+			explicit = true
+		case 24:
+			st.attrs &^= attrUnderline
+			explicit = true
+		case 25:
+			st.attrs &^= attrBlinkSlow | attrBlinkRapid
+			explicit = true
+		case 27:
+			st.attrs &^= attrInverse
+			explicit = true
+		case 28:
+			st.attrs &^= attrConceal
+			explicit = true
+		case 29:
+			st.attrs &^= attrStrikethrough
 			explicit = true
 		case 39:
-			styled = false
+			st.fgActive = false
 			explicit = true
 		case 49:
-			styled = false
+			st.bgActive = false
 			explicit = true
 		default:
 			if (code >= 30 && code <= 37) || (code >= 90 && code <= 97) {
-				styled = true
+				st.fgActive = true
 				explicit = true
 			} else if code == 38 {
-				styled = true
+				st.fgActive = true
 				explicit = true
 				i += skipExtendedColor(codes, i+1)
 			} else if (code >= 40 && code <= 47) || (code >= 100 && code <= 107) {
-				styled = true
+				st.bgActive = true
 				explicit = true
 			} else if code == 48 {
-				styled = true
+				st.bgActive = true
 				explicit = true
 				i += skipExtendedColor(codes, i+1)
 			}
 		}
 	}
-	return styled, explicit
+	return explicit
 }
 
 func skipExtendedColor(codes []int, start int) int {

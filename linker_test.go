@@ -950,6 +950,24 @@ func TestLinker_SymbolLinks(t *testing.T) {
 				symbolLinks: true,
 				expected:    "\x1b[31m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=Foo&cwd=" + tmpDir + "\x1b\\Foo\x1b]8;;\x1b\\\x1b[0m Bar\n",
 			},
+			{
+				name:        "mixed fg color and bg reset still links",
+				input:       "\x1b[38;5;6;49mGREEN\x1b[39;49m\n",
+				symbolLinks: true,
+				expected:    "\x1b[38;5;6;49m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=GREEN&cwd=" + tmpDir + "\x1b\\GREEN\x1b]8;;\x1b\\\x1b[39;49m\n",
+			},
+			{
+				name:        "mixed fg color and bg reset links second token",
+				input:       "\x1b[38;5;6;49mREFACTOR\x1b[39;49m\n",
+				symbolLinks: true,
+				expected:    "\x1b[38;5;6;49m\x1b]8;;cursor://maaashjp.symbol-opener?symbol=REFACTOR&cwd=" + tmpDir + "\x1b\\REFACTOR\x1b]8;;\x1b\\\x1b[39;49m\n",
+			},
+			{
+				name:        "foreground reset in same sgr stops linking",
+				input:       "\x1b[38;5;6;49;39mGREEN\x1b[49m\n",
+				symbolLinks: true,
+				expected:    "\x1b[38;5;6;49;39mGREEN\x1b[49m\n",
+			},
 		})
 	})
 
@@ -1052,6 +1070,11 @@ func TestLinker_SymbolLinksSplitAcrossWrites(t *testing.T) {
 			name:     "word at end of write followed by space in next write",
 			writes:   []string{"\x1b[31mFoo", " Bar\x1b[0m\n"},
 			expected: "\x1b[31m" + symLink("Foo") + " " + symLink("Bar") + "\x1b[0m\n",
+		},
+		{
+			name:     "mixed fg/bg sgr across writes keeps linking",
+			writes:   []string{"\x1b[38;5;6;49mGREE", "N\x1b[39;49m\n"},
+			expected: "\x1b[38;5;6;49m" + symLink("GREEN") + "\x1b[39;49m\n",
 		},
 	}
 
