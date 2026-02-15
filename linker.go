@@ -30,7 +30,6 @@ type Linker struct {
 	cwd             string
 	hostname        string
 	scheme          string
-	fileCache       map[string]bool
 	domains         []string
 	urlPattern      *regexp.Regexp
 	resolveBasename bool
@@ -60,7 +59,6 @@ func NewLinker(opts LinkerOptions) *Linker {
 		cwd:             opts.Cwd,
 		hostname:        opts.Hostname,
 		scheme:          scheme,
-		fileCache:       make(map[string]bool),
 		domains:         opts.Domains,
 		resolveBasename: opts.ResolveBasename,
 		excludeDirs:     opts.ExcludeDirs,
@@ -336,13 +334,8 @@ func (l *Linker) resolvePath(path string) string {
 }
 
 func (l *Linker) pathExists(path string) bool {
-	if exists, ok := l.fileCache[path]; ok {
-		return exists
-	}
 	_, err := os.Stat(path)
-	exists := err == nil
-	l.fileCache[path] = exists
-	return exists
+	return err == nil
 }
 
 func (l *Linker) st() string {
