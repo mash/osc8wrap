@@ -33,7 +33,6 @@ type Linker struct {
 	domains         []string
 	urlPattern      *regexp.Regexp
 	resolveBasename bool
-	excludeDirs     []string
 	index           *FileIndex
 	terminator      string
 	symbolLinks     bool
@@ -61,7 +60,6 @@ func NewLinker(opts LinkerOptions) *Linker {
 		scheme:          scheme,
 		domains:         opts.Domains,
 		resolveBasename: opts.ResolveBasename,
-		excludeDirs:     opts.ExcludeDirs,
 		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs),
 		terminator:      terminator,
 		symbolLinks:     opts.SymbolLinks,

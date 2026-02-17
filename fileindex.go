@@ -25,7 +25,6 @@ type FileIndex struct {
 	files       map[string][]FileInfo
 	readyChan   chan struct{}
 	cwd         string
-	excludeDirs []string
 	excludeSet  map[string]bool
 	ignoredDirs map[string]bool
 	watcher     *fsnotify.Watcher
@@ -37,11 +36,10 @@ func NewFileIndex(cwd string, excludeDirs []string) *FileIndex {
 		excludeSet[d] = true
 	}
 	return &FileIndex{
-		files:       make(map[string][]FileInfo),
-		readyChan:   make(chan struct{}),
-		cwd:         cwd,
-		excludeDirs: excludeDirs,
-		excludeSet:  excludeSet,
+		files:      make(map[string][]FileInfo),
+		readyChan:  make(chan struct{}),
+		cwd:        cwd,
+		excludeSet: excludeSet,
 	}
 }
 
