@@ -104,8 +104,8 @@ When a path like `main.go:10` doesn't exist relative to the current directory, o
 **How it works:**
 
 1. On startup, osc8wrap builds a file index in the background
-   - In git repositories: uses `git ls-files` for fast indexing
-   - Otherwise: walks the filesystem, skipping excluded directories
+   - Walks the filesystem, skipping excluded directories
+   - In git repositories: paths listed in `.gitignore` are automatically excluded
 2. When a path doesn't exist at the literal location, the index is consulted
 3. Files are matched by basename, then filtered by path suffix if the input contains `/`
 4. When multiple files match, the most recently modified file is selected

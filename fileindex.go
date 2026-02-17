@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,6 +27,7 @@ type FileIndex struct {
 	cwd         string
 	excludeDirs []string
 	excludeSet  map[string]bool
+	ignoredDirs map[string]bool
 	watcher     *fsnotify.Watcher
 }
 
@@ -44,6 +46,7 @@ func NewFileIndex(cwd string, excludeDirs []string) *FileIndex {
 }
 
 func (idx *FileIndex) Start(ctx context.Context) {
+	idx.ignoredDirs = loadGitIgnoredDirs(ctx, idx.cwd)
 	idx.buildFromFilesystem(ctx)
 
 	idx.mu.Lock()
@@ -65,7 +68,7 @@ func (idx *FileIndex) buildFromFilesystem(ctx context.Context) {
 		default:
 		}
 		if d.IsDir() {
-			if idx.excludeSet[d.Name()] {
+			if idx.isIgnoredDir(path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -156,7 +159,7 @@ func (idx *FileIndex) watchDirRecursive(root string) {
 		if !d.IsDir() {
 			return nil
 		}
-		if idx.excludeSet[d.Name()] {
+		if idx.isIgnoredDir(path) {
 			return filepath.SkipDir
 		}
 		_ = idx.watcher.Add(path)
@@ -185,7 +188,7 @@ func (idx *FileIndex) watchLoop(ctx context.Context) {
 }
 
 func (idx *FileIndex) handleEvent(event fsnotify.Event) {
-	if idx.excludeSet[filepath.Base(event.Name)] {
+	if idx.isIgnoredDir(event.Name) {
 		return
 	}
 
@@ -198,6 +201,9 @@ func (idx *FileIndex) handleEvent(event fsnotify.Event) {
 }
 
 func (idx *FileIndex) handleCreate(path string) {
+	if idx.isIgnoredDir(path) {
+		return
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return
@@ -233,7 +239,7 @@ func (idx *FileIndex) indexDir(dir string) {
 			return nil
 		}
 		if d.IsDir() {
-			if idx.excludeSet[d.Name()] {
+			if idx.isIgnoredDir(path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -247,6 +253,28 @@ func (idx *FileIndex) indexDir(dir string) {
 		idx.addFile(path, info.ModTime())
 		return nil
 	})
+}
+
+func (idx *FileIndex) isIgnoredDir(path string) bool {
+	return idx.excludeSet[filepath.Base(path)] || idx.ignoredDirs[path]
+}
+
+func loadGitIgnoredDirs(ctx context.Context, cwd string) map[string]bool {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "-oi", "--exclude-standard", "--directory")
+	cmd.Dir = cwd
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	dirs := make(map[string]bool)
+	for line := range strings.SplitSeq(string(out), "\n") {
+		line = strings.TrimRight(line, "/\r\n ")
+		if line == "" {
+			continue
+		}
+		dirs[filepath.Join(cwd, line)] = true
+	}
+	return dirs
 }
 
 func (idx *FileIndex) addFile(path string, mtime time.Time) {
