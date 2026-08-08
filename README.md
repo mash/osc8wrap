@@ -277,9 +277,9 @@ A row that matched only on its location carries no `.Match`, which is the honest
 
 A live session is filtered like any other, and dropped when nothing about it matches: live rows sort to the top, so keeping them would leave the sessions you filtered *out* sitting above the ones you wanted. A live session with no UUID yet has no transcript to search, but it does have a cwd, a repository and a branch; it matches on those, and is dropped only when a term needs a conversation it does not have.
 
-`osc8wrap preview <id> [query...]` takes the same query: when it matches, the pane shows the matching region of the conversation instead of the session's head or tail, so the row explains itself — the turn the query hit, and above it the prompt that led to it, because the hit alone is usually a long answer with your term buried in it, and shows what was said rather than what was asked. When it does not match — which is every prefix of a query you are still typing — the pane falls back to the usual turns rather than blinking empty. Either way it still reads exactly one transcript.
+`osc8wrap preview` takes the same query and answers the other half of the question — not which sessions matched, but why this one did. See [Previewing a session](#previewing-a-session).
 
-The two fit together as the whole picker: the rc function above binds the query to every keystroke instead of letting fzf filter anything.
+Together they are the whole picker: the rc function above binds the query to every keystroke instead of letting fzf filter anything.
 
 ```sh
     --bind 'start,change:reload:osc8wrap sessions {q}' \
@@ -315,7 +315,7 @@ Both values are quoted, and a value carrying a control character — macOS lets 
 osc8wrap preview <id> [query...]
 ```
 
-Prints a header naming the session — tag, repo, worktree, branch, date, cwd, id — and then its turns: the **first** ones for a finished session, because you are identifying it, and the **last** ones for a live one, because you are checking on it. Trailing words are fzf's `{q}`: when they match somewhere in the conversation the pane shows that region instead — the matching turn, preceded by the prompt that led to it — and when they do not it shows the usual turns. The header is never displaced; it answers a question the query did not replace. What Claude is doing has no line of its own: the tag at the head of the header already says it (`WAIT`, `BUSY`, `IDLE`, `LIVE`, `done`), and the listing row you are sitting on says what a waiting session is blocked on.
+Prints a header naming the session — tag, repo, worktree, branch, date, cwd, id — and then its turns: the **first** ones for a finished session, because you are identifying it, and the **last** ones for a live one, because you are checking on it. Trailing words are fzf's `{q}`, the same query [`sessions`](#full-text-search) takes. When they match somewhere in the conversation the pane shows that region instead: the turn the query hit, and above it the prompt that led to it, because the hit alone is usually a long answer with your term buried in it and says what was said rather than what was asked. When they do not match — which is every prefix of a query you are still typing — the pane falls back to the usual turns rather than blinking empty. The header is never displaced; it answers a question the query did not replace. What Claude is doing has no line of its own: the tag at the head of the header already says it (`WAIT`, `BUSY`, `IDLE`, `LIVE`, `done`), and the listing row you are sitting on says what a waiting session is blocked on.
 
 It reads one transcript, never the whole corpus: fzf respawns it on every keystroke that moves the highlight, and a single invocation costs milliseconds. For a session with no readable transcript it prints the header and a note and still exits 0, so the pane shows what is known rather than an fzf error. Every string taken from a transcript has its control characters stripped, so a turn containing an escape sequence cannot repaint the pane. `NO_COLOR` suppresses styling.
 
