@@ -100,3 +100,28 @@ func TestParseArgsConsumesEveryOption(t *testing.T) {
 		}
 	}
 }
+
+func TestParseArgsMaxWatches(t *testing.T) {
+	tests := []struct {
+		env  string
+		want int
+	}{
+		{"50000", 50000},
+		// Anything that is not a positive number leaves MaxWatches at zero, which
+		// NewFileIndex reads as the default. A typo must not lift the cap.
+		{"", 0},
+		{"lots", 0},
+		{"0", 0},
+		{"-1", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.env, func(t *testing.T) {
+			t.Setenv("OSC8WRAP_MAX_WATCHES", tt.env)
+			opts, _, _ := parseArgs([]string{"echo", "hi"})
+			if opts.MaxWatches != tt.want {
+				t.Errorf("OSC8WRAP_MAX_WATCHES=%q gave MaxWatches %d, want %d", tt.env, opts.MaxWatches, tt.want)
+			}
+		})
+	}
+}

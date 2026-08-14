@@ -20,6 +20,7 @@ type LinkerOptions struct {
 	Domains         []string
 	ResolveBasename bool
 	ExcludeDirs     []string
+	MaxWatches      int    // 0 means defaultMaxWatches
 	Terminator      string // "st" (default, ESC \) or "bel" (0x07)
 	SymbolLinks     bool
 	DebugWrites     bool
@@ -61,7 +62,7 @@ func NewLinker(opts LinkerOptions) *Linker {
 		scheme:          scheme,
 		domains:         opts.Domains,
 		resolveBasename: opts.ResolveBasename,
-		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs),
+		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs, opts.MaxWatches),
 		terminator:      terminator,
 		symbolLinks:     opts.SymbolLinks,
 		tokenizer:       NewAnsiTokenizer(),

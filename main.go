@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -84,6 +85,12 @@ Options:
                           "/" matches a relative path suffix, as in
                           ".claude/worktrees".
                           Can also be set via OSC8WRAP_EXCLUDE_DIRS
+  OSC8WRAP_MAX_WATCHES=N  Cap on directories watched for changes
+                          (default: 10000, env var only)
+                          On macOS each watch costs a file descriptor, so this
+                          bounds what an unexpected tree can consume. Reaching
+                          it prints one warning and stops adding watches; the
+                          fix is usually --exclude-dir, not a bigger cap.
   --no-symbol-links       Disable symbol linking (default: enabled when scheme != file)
                           Can also be set via OSC8WRAP_NO_SYMBOL_LINKS=1
   --debug-writes          Log each Write call to a temp file (path printed to stderr)
@@ -173,6 +180,11 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string, sawDoubleDa
 	opts.ExcludeDirs = defaultExcludeDirs
 	if env := os.Getenv("OSC8WRAP_EXCLUDE_DIRS"); env != "" {
 		opts.ExcludeDirs = splitComma(env)
+	}
+	// An unparsable or non-positive value leaves MaxWatches at 0, which
+	// NewFileIndex reads as the default. A typo must not lift the cap.
+	if n, err := strconv.Atoi(os.Getenv("OSC8WRAP_MAX_WATCHES")); err == nil && n > 0 {
+		opts.MaxWatches = n
 	}
 	noSymbolLinks := os.Getenv("OSC8WRAP_NO_SYMBOL_LINKS") == "1"
 

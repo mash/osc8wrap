@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 func initGitRepo(t *testing.T, dir string) {
@@ -96,7 +100,7 @@ func TestIsIgnoredDir(t *testing.T) {
 }
 
 func TestNewFileIndex_SplitsNamesFromPathSuffixes(t *testing.T) {
-	idx := NewFileIndex("/project", []string{"vendor", ".claude/worktrees", "/Pods/", "", "/"})
+	idx := NewFileIndex("/project", []string{"vendor", ".claude/worktrees", "/Pods/", "", "/"}, 0)
 
 	if !idx.excludeSet["vendor"] || !idx.excludeSet["Pods"] {
 		t.Errorf("plain names should land in excludeSet, got %v", idx.excludeSet)
@@ -107,7 +111,7 @@ func TestNewFileIndex_SplitsNamesFromPathSuffixes(t *testing.T) {
 }
 
 func TestIsIgnoredDir_PathSuffix(t *testing.T) {
-	idx := NewFileIndex("/project", []string{"DerivedData", ".claude/worktrees"})
+	idx := NewFileIndex("/project", []string{"DerivedData", ".claude/worktrees"}, 0)
 
 	tests := []struct {
 		path string
@@ -139,7 +143,7 @@ func TestIsIgnoredDir_PathSuffix(t *testing.T) {
 }
 
 func TestDefaultExcludeDirs_CoversXcodeTrees(t *testing.T) {
-	idx := NewFileIndex("/project", defaultExcludeDirs)
+	idx := NewFileIndex("/project", defaultExcludeDirs, 0)
 
 	for _, path := range []string{
 		"/project/ios/DerivedData",
@@ -153,6 +157,99 @@ func TestDefaultExcludeDirs_CoversXcodeTrees(t *testing.T) {
 	}
 	if idx.isIgnoredDir("/project/ios/Nature") {
 		t.Error("default excludes should not ignore project sources")
+	}
+}
+
+func TestNewFileIndex_MaxWatchesDefault(t *testing.T) {
+	// A caller that has no opinion, and a bad env value that parseArgs left at
+	// zero, both have to land on the default rather than on "no cap".
+	for _, n := range []int{0, -1} {
+		if idx := NewFileIndex("/project", nil, n); idx.maxWatches != defaultMaxWatches {
+			t.Errorf("NewFileIndex(..., %d).maxWatches = %d, want %d", n, idx.maxWatches, defaultMaxWatches)
+		}
+	}
+	if idx := NewFileIndex("/project", nil, 5); idx.maxWatches != 5 {
+		t.Errorf("maxWatches = %d, want 5", idx.maxWatches)
+	}
+}
+
+func TestWatchDirRecursive_StopsAtMaxWatches(t *testing.T) {
+	tmp := t.TempDir()
+	tmp, _ = filepath.EvalSymlinks(tmp)
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		if err := os.MkdirAll(filepath.Join(tmp, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Six directories including the root, against a cap of three.
+	idx := NewFileIndex(tmp, nil, 3)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Skipf("fsnotify unavailable: %v", err)
+	}
+	defer watcher.Close() //nolint:errcheck
+	idx.watcher = watcher
+
+	idx.watchDirRecursive(tmp)
+
+	if idx.watchCount != 3 {
+		t.Errorf("watchCount = %d, want 3", idx.watchCount)
+	}
+	if got := len(watcher.WatchList()); got != 3 {
+		t.Errorf("watcher holds %d paths, want 3", got)
+	}
+	if !idx.watchWarned {
+		t.Error("reaching the cap should have warned")
+	}
+}
+
+func TestWatchDirRecursive_UnderMaxWatchesDoesNotWarn(t *testing.T) {
+	tmp := t.TempDir()
+	tmp, _ = filepath.EvalSymlinks(tmp)
+	if err := os.MkdirAll(filepath.Join(tmp, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := NewFileIndex(tmp, nil, 100)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Skipf("fsnotify unavailable: %v", err)
+	}
+	defer watcher.Close() //nolint:errcheck
+	idx.watcher = watcher
+
+	idx.watchDirRecursive(tmp)
+
+	if idx.watchCount != 2 {
+		t.Errorf("watchCount = %d, want 2", idx.watchCount)
+	}
+	if idx.watchWarned {
+		t.Error("a tree below the cap must not warn")
+	}
+}
+
+func TestWarnWatchLimit_WarnsOnce(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+
+	idx := NewFileIndex("/project", nil, 7)
+	idx.warnWatchLimit()
+	idx.warnWatchLimit()
+
+	w.Close() //nolint:errcheck
+	os.Stderr = orig
+	out, _ := io.ReadAll(r)
+
+	if n := strings.Count(string(out), "watch limit reached"); n != 1 {
+		t.Errorf("warned %d times, want 1:\n%s", n, out)
+	}
+	if !strings.Contains(string(out), "7") {
+		t.Errorf("the warning should name the cap it hit, got %q", out)
 	}
 }
 
@@ -185,7 +282,7 @@ func TestFileIndex_GitignoreDirsExcludedFromIndex(t *testing.T) {
 	os.MkdirAll(filepath.Join(tmp, "src"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "src", "main.go"), []byte("package main"), 0o644)
 
-	idx := NewFileIndex(tmp, []string{})
+	idx := NewFileIndex(tmp, []string{}, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go idx.Start(ctx)

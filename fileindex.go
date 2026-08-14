@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -13,6 +14,17 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/mash/osc8wrap/symwalk"
 )
+
+// defaultMaxWatches bounds how many directories are given an fsnotify watch.
+// On macOS fsnotify is kqueue, which spends one file descriptor per watch, so
+// an unbounded walk can exhaust the process and, once, the machine: 99,347
+// directories under one repository became 275,319 descriptors and overflowed
+// the system file table.
+//
+// defaultExcludeDirs keeps an ordinary tree two orders of magnitude below this,
+// so the cap is not a tuning knob. It is the backstop for the tree the excludes
+// do not know the name of yet.
+const defaultMaxWatches = 10000
 
 type FileInfo struct {
 	path  string
@@ -29,9 +41,18 @@ type FileIndex struct {
 	excludePath []string
 	ignoredDirs map[string]bool
 	watcher     *fsnotify.Watcher
+
+	// Touched only from the watcher path: watchDirRecursive runs to completion
+	// in Start before watchLoop, the one goroutine that calls it afterwards.
+	maxWatches  int
+	watchCount  int
+	watchWarned bool
 }
 
-func NewFileIndex(cwd string, excludeDirs []string) *FileIndex {
+func NewFileIndex(cwd string, excludeDirs []string, maxWatches int) *FileIndex {
+	if maxWatches <= 0 {
+		maxWatches = defaultMaxWatches
+	}
 	excludeSet := make(map[string]bool)
 	var excludePath []string
 	for _, d := range excludeDirs {
@@ -51,6 +72,7 @@ func NewFileIndex(cwd string, excludeDirs []string) *FileIndex {
 		cwd:         cwd,
 		excludeSet:  excludeSet,
 		excludePath: excludePath,
+		maxWatches:  maxWatches,
 	}
 }
 
@@ -169,9 +191,30 @@ func (idx *FileIndex) watchDirRecursive(root string) {
 		if idx.isIgnoredDir(path) {
 			return filepath.SkipDir
 		}
-		_ = idx.watcher.Add(path)
+		if idx.watchCount >= idx.maxWatches {
+			idx.warnWatchLimit()
+			return filepath.SkipAll
+		}
+		// Count only the watches that took. A directory that cannot be watched
+		// costs no descriptor and must not consume the budget for one.
+		if idx.watcher.Add(path) == nil {
+			idx.watchCount++
+		}
 		return nil
 	})
+}
+
+// warnWatchLimit reports the cap once per process. Staying silent is what let
+// the descriptor exhaustion this cap prevents go unnoticed until the machine
+// stopped; saying it on every walk would bury the wrapped command's output.
+func (idx *FileIndex) warnWatchLimit() {
+	if idx.watchWarned {
+		return
+	}
+	idx.watchWarned = true
+	fmt.Fprintf(os.Stderr,
+		"osc8wrap: watch limit reached at %d directories; new files below this point will not be indexed. Consider --exclude-dir=... to narrow the tree.\n",
+		idx.maxWatches)
 }
 
 func (idx *FileIndex) watchLoop(ctx context.Context) {
