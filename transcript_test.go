@@ -453,6 +453,93 @@ func TestReadTranscriptTailRolesAndInvalidLines(t *testing.T) {
 	}
 }
 
+func TestReadTranscriptTailBranch(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{
+			name: "last branch wins over an earlier one",
+			lines: []string{
+				userLine("/repo", "main", `"first"`),
+				userLine("/repo", "feature/x", `"second"`),
+			},
+			want: "feature/x",
+		},
+		{
+			name: "a later record with no branch does not erase the earlier one",
+			lines: []string{
+				userLine("/repo", "feature/x", `"first"`),
+				`{"type":"assistant","message":{"role":"assistant","content":"no branch here"}}`,
+			},
+			want: "feature/x",
+		},
+		{
+			name: "a record with gitBranch but no message text still counts",
+			lines: []string{
+				userLine("/repo", "main", `"first"`),
+				`{"type":"queue-operation","gitBranch":"feature/x","operation":"enqueue"}`,
+			},
+			want: "feature/x",
+		},
+		{
+			name: "no gitBranch anywhere yields empty",
+			lines: []string{
+				`{"type":"assistant","message":{"role":"assistant","content":"hi"}}`,
+			},
+			want: "",
+		},
+		{
+			name:  "empty file",
+			lines: nil,
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := writeTranscriptFile(t, dir, "t.jsonl", tt.lines...)
+			if got := readTranscriptTailBranch(path); got != tt.want {
+				t.Errorf("readTranscriptTailBranch() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadTranscriptTailBranchMissingFile(t *testing.T) {
+	got := readTranscriptTailBranch(filepath.Join(t.TempDir(), "absent.jsonl"))
+	if got != "" {
+		t.Errorf("readTranscriptTailBranch() = %q, want empty", got)
+	}
+}
+
+// TestReadTranscriptTailBranchWindowMidRecord pins the window against a real
+// tailBranchWindowSize-sized file rather than a small one, so the seek and
+// partial-line discard exercised here are the ones production actually runs.
+func TestReadTranscriptTailBranchWindowMidRecord(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.jsonl")
+
+	// Pad the front of the file past the window with an oversized filler line
+	// carrying a branch that must not surface, then two real records that the
+	// window is guaranteed to contain whole.
+	filler := userLine("/repo", "stale", fmt.Sprintf("%q", strings.Repeat("x", 2*tailBranchWindowSize)))
+	last := []string{
+		userLine("/repo", "feature/x", `"second to last"`),
+		userLine("/repo", "feature/y", `"last"`),
+	}
+	body := filler + "\n" + strings.Join(last, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := readTranscriptTailBranch(path), "feature/y"; got != want {
+		t.Errorf("readTranscriptTailBranch() = %q, want %q", got, want)
+	}
+}
+
 func assertTurnTexts(t *testing.T, got []turn, want []string) {
 	t.Helper()
 	if len(got) != len(want) {

@@ -22,6 +22,11 @@ const (
 	maxLineBytes = 1 << 20
 	// readBufferSize is the bufio window, sized so a typical line needs one refill.
 	readBufferSize = 64 << 10
+	// tailBranchWindowSize bounds the read used to recover a finished session's
+	// final branch. It must be big enough that at least one whole record
+	// boundary falls inside the window even when the preceding record is a
+	// large tool_result; 64<<10 is a reasonable default for that.
+	tailBranchWindowSize = 64 << 10
 )
 
 // claudeDir is the root of claude's per-user state, governing both sessions/
@@ -244,6 +249,46 @@ func isRealPrompt(text string) bool {
 	return text != "" && !strings.HasPrefix(text, "<")
 }
 
+// seekTranscriptTail positions f at the start of its last maxBytes and returns
+// a reader over the rest of the file, or ok=false if that setup failed or the
+// window held nothing but a partial record. Shared by readTranscriptTail and
+// readTranscriptTailBranch, which differ only in what they do with the turns.
+func seekTranscriptTail(f *os.File, maxBytes int64) (*bufio.Reader, bool) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, false
+	}
+	offset := info.Size() - maxBytes
+	if offset < 0 {
+		offset = 0
+	}
+
+	// The byte before the window says whether the seek landed inside a line or
+	// exactly on a record boundary. Discarding the "partial" first line in the
+	// latter case would eat a whole record.
+	partial := false
+	if offset > 0 {
+		var prev [1]byte
+		if _, err := f.ReadAt(prev[:], offset-1); err != nil {
+			return nil, false
+		}
+		partial = prev[0] != '\n'
+	}
+
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return nil, false
+	}
+
+	r := bufio.NewReaderSize(f, readBufferSize)
+	if partial {
+		// The seek landed mid-line; that fragment is not a record on its own.
+		if _, eof := readBoundedLine(r, 0); eof {
+			return nil, false
+		}
+	}
+	return r, true
+}
+
 // readTranscriptTail returns the turns in the last maxBytes of a transcript.
 // Cost is bounded by maxBytes, not by the file, which matters because the
 // preview pane runs once per highlighted row over files up to hundreds of MB.
@@ -258,37 +303,9 @@ func readTranscriptTail(path string, maxBytes int64) []turn {
 	}
 	defer f.Close() //nolint:errcheck
 
-	info, err := f.Stat()
-	if err != nil {
+	r, ok := seekTranscriptTail(f, maxBytes)
+	if !ok {
 		return nil
-	}
-	offset := info.Size() - maxBytes
-	if offset < 0 {
-		offset = 0
-	}
-
-	// The byte before the window says whether the seek landed inside a line or
-	// exactly on a record boundary. Discarding the "partial" first line in the
-	// latter case would eat a whole record.
-	partial := false
-	if offset > 0 {
-		var prev [1]byte
-		if _, err := f.ReadAt(prev[:], offset-1); err != nil {
-			return nil
-		}
-		partial = prev[0] != '\n'
-	}
-
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil
-	}
-
-	r := bufio.NewReaderSize(f, readBufferSize)
-	if partial {
-		// The seek landed mid-line; that fragment is not a record on its own.
-		if _, eof := readBoundedLine(r, 0); eof {
-			return nil
-		}
 	}
 
 	var turns []turn
@@ -299,6 +316,38 @@ func readTranscriptTail(path string, maxBytes int64) []turn {
 		}
 		if eof {
 			return turns
+		}
+	}
+}
+
+// readTranscriptTailBranch returns the LAST non-empty gitBranch in the final
+// tailBranchWindowSize bytes of a transcript, or "" if none was found or the
+// file could not be read. This is what makes a finished session's branch
+// track a mid-session `git checkout` instead of freezing on the first one.
+//
+// Unlike readTranscriptTail, records are not filtered on Role/Text: a record
+// can carry gitBranch with no message text at all, and skipping those would
+// silently fall back to a stale branch.
+func readTranscriptTailBranch(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck
+
+	r, ok := seekTranscriptTail(f, tailBranchWindowSize)
+	if !ok {
+		return ""
+	}
+
+	var branch string
+	for {
+		line, eof := readBoundedLine(r, maxLineBytes)
+		if t, ok := parseTurn(line); ok && t.GitBranch != "" {
+			branch = t.GitBranch
+		}
+		if eof {
+			return branch
 		}
 	}
 }

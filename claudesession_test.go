@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -475,6 +476,54 @@ func TestMergeSessionsFinishedTranscript(t *testing.T) {
 	}
 	if !s.Modified.Equal(tm.ModTime) {
 		t.Errorf("Modified = %v, want the transcript mtime %v", s.Modified, tm.ModTime)
+	}
+}
+
+// TestMergeSessionsFinishedTranscriptBranchSwitch is the bug this fix targets:
+// a session that starts on main and switches to a feature branch mid-session
+// must be recorded under the branch it ended on, not the one it started on,
+// or the picker's branch search can never find it.
+func TestMergeSessionsFinishedTranscriptBranchSwitch(t *testing.T) {
+	projects := newProjectsDir(t)
+	dir := filepath.Join(projects, "p")
+	path := writeTranscriptFile(t, dir, "uuid-switch.jsonl",
+		userLine("/Users/mash/src/a", "main", `"start here"`),
+		userLine("/Users/mash/src/a", "feature/x", `"switched branches"`),
+	)
+	tm := transcriptMeta{ID: "uuid-switch", Path: path, ProjectDir: dir, ModTime: mergeBase}
+
+	got := mergeSessions(nil, []transcriptMeta{tm})
+	if len(got) != 1 {
+		t.Fatalf("got %d records, want 1", len(got))
+	}
+	if s := got[0]; s.Branch != "feature/x" {
+		t.Errorf("Branch = %q, want %q", s.Branch, "feature/x")
+	}
+}
+
+// TestMergeSessionsFinishedTranscriptNoBranchFallsBackToHead covers a
+// transcript whose tail window (bounded by tailBranchWindowSize) never finds
+// a gitBranch at all -- here because the only gitBranch-carrying record is
+// pushed out of the window by a huge filler record after it, while still
+// within headMaxLines so the head scan finds it. applyTranscript must fall
+// back to the head's branch rather than leave the branch empty.
+func TestMergeSessionsFinishedTranscriptNoBranchFallsBackToHead(t *testing.T) {
+	projects := newProjectsDir(t)
+	dir := filepath.Join(projects, "p")
+	filler := fmt.Sprintf(`{"type":"assistant","message":{"role":"assistant","content":%q}}`,
+		strings.Repeat("x", 2*tailBranchWindowSize))
+	path := writeTranscriptFile(t, dir, "uuid-nobranch.jsonl",
+		userLine("/Users/mash/src/a", "main", `"only the head carries a branch"`),
+		filler,
+	)
+	tm := transcriptMeta{ID: "uuid-nobranch", Path: path, ProjectDir: dir, ModTime: mergeBase}
+
+	got := mergeSessions(nil, []transcriptMeta{tm})
+	if len(got) != 1 {
+		t.Fatalf("got %d records, want 1", len(got))
+	}
+	if s := got[0]; s.Branch != "main" {
+		t.Errorf("Branch = %q, want the head's %q", s.Branch, "main")
 	}
 }
 

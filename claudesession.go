@@ -225,7 +225,14 @@ func applyTranscript(s *Session, tm transcriptMeta, head transcriptHead) {
 		s.Prompt = head.Prompt
 	}
 	if s.Live == nil {
-		s.Branch = head.GitBranch
+		// The tail, not the head: a session that starts on main and switches to
+		// a feature branch mid-session must be found by the branch it ended on,
+		// not the one it happened to start on. Falls back to head when the tail
+		// window found no gitBranch at all, e.g. a transcript shorter than it.
+		s.Branch = readTranscriptTailBranch(tm.Path)
+		if s.Branch == "" {
+			s.Branch = head.GitBranch
+		}
 		s.Modified = tm.ModTime
 		return
 	}
@@ -239,10 +246,11 @@ func applyTranscript(s *Session, tm transcriptMeta, head transcriptHead) {
 func applyGitContext(s *Session, git *gitContextResolver) {
 	ctx := git.Resolve(s.Cwd)
 	// A live session may have switched branches since it started, so disk wins
-	// over what the transcript recorded at the top of the file. A finished one
-	// cannot have, and its directory is often a worktree that has since been
-	// deleted, so it keeps the recorded branch and takes only what the disk can
-	// still confirm.
+	// over what the transcript recorded. A finished session's directory is
+	// often a worktree that has since been deleted, so disk cannot be trusted
+	// for it either way; it keeps the branch applyTranscript already recovered
+	// from the end of the transcript and takes only what the disk can still
+	// confirm.
 	if s.Live != nil {
 		s.Branch = ctx.Branch
 	}
