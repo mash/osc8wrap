@@ -15,7 +15,33 @@ import (
 	"golang.org/x/term"
 )
 
-var defaultExcludeDirs = []string{"vendor", "node_modules", ".git", "__pycache__", ".cache"}
+// defaultExcludeDirs lists directories that hold generated or vendored files
+// rather than project sources. Walking them wastes time, and on macOS it also
+// wastes file descriptors: fsnotify watches through kqueue, which costs one
+// descriptor per watched directory. An Xcode tree alone (DerivedData, Pods)
+// reaches hundreds of thousands of directories and exhausts the system file
+// table.
+//
+// An entry with no "/" matches any directory of that name. An entry with a "/"
+// matches a relative path suffix, so ".claude/worktrees" excludes the linked
+// git worktrees Claude Code creates without excluding ".claude" itself.
+//
+// loadGitIgnoredDirs does not cover these. It reads only the ignored entries of
+// the working tree it runs in, and ".claude/worktrees" is untracked rather than
+// ignored, so it never appears in that list. The walk then descends into each
+// linked worktree, whose own .gitignore the outer command never consults.
+var defaultExcludeDirs = []string{
+	// version control
+	".git", ".hg", ".svn",
+	// vendored dependencies
+	"vendor", "node_modules", "Pods", "Carthage", ".venv", "venv",
+	// build output
+	"DerivedData", "build", ".build", "dist", "target", ".gradle", ".next", ".nuxt",
+	// caches
+	"__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".terraform",
+	// linked git worktrees created by tooling
+	".claude/worktrees",
+}
 
 const usage = `Usage: osc8wrap [options] <command> [args...]
        <other command> | osc8wrap [options]
@@ -51,7 +77,12 @@ Options:
   --no-resolve-basename   Disable basename resolution (default: enabled)
                           Can also be set via OSC8WRAP_NO_RESOLVE_BASENAME=1
   --exclude-dir=DIR,...   Directories to exclude from search (replaces defaults)
-                          Default: vendor,node_modules,.git,__pycache__,.cache
+                          Defaults cover version control, vendored dependencies
+                          (node_modules, Pods, vendor), build output
+                          (DerivedData, build, dist, target) and caches.
+                          A name matches any directory so named; a value with a
+                          "/" matches a relative path suffix, as in
+                          ".claude/worktrees".
                           Can also be set via OSC8WRAP_EXCLUDE_DIRS
   --no-symbol-links       Disable symbol linking (default: enabled when scheme != file)
                           Can also be set via OSC8WRAP_NO_SYMBOL_LINKS=1

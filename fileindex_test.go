@@ -95,6 +95,67 @@ func TestIsIgnoredDir(t *testing.T) {
 	}
 }
 
+func TestNewFileIndex_SplitsNamesFromPathSuffixes(t *testing.T) {
+	idx := NewFileIndex("/project", []string{"vendor", ".claude/worktrees", "/Pods/", "", "/"})
+
+	if !idx.excludeSet["vendor"] || !idx.excludeSet["Pods"] {
+		t.Errorf("plain names should land in excludeSet, got %v", idx.excludeSet)
+	}
+	if len(idx.excludePath) != 1 || idx.excludePath[0] != "/.claude/worktrees" {
+		t.Errorf("path entries should be anchored with a leading slash, got %v", idx.excludePath)
+	}
+}
+
+func TestIsIgnoredDir_PathSuffix(t *testing.T) {
+	idx := NewFileIndex("/project", []string{"DerivedData", ".claude/worktrees"})
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		// A name matches at any depth. This is what catches build output inside
+		// a linked git worktree, whose .gitignore the outer repo never reads.
+		{"/project/DerivedData", true},
+		{"/project/.claude/worktrees/feat-x/ios/DerivedData", true},
+		// A path entry matches a relative suffix, so the whole worktree subtree
+		// is skipped while ".claude" itself stays indexed.
+		{"/project/.claude/worktrees", true},
+		{"/project/.claude/worktrees/feat-x/ios", true},
+		{"/project/.claude", false},
+		{"/project/.claude/skills", false},
+		// A suffix must align on a separator, so a longer name does not match.
+		{"/project/my.claude/worktrees", false},
+		{"/project/worktrees", false},
+		{"/project/src", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := idx.isIgnoredDir(tt.path); got != tt.want {
+				t.Errorf("isIgnoredDir(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultExcludeDirs_CoversXcodeTrees(t *testing.T) {
+	idx := NewFileIndex("/project", defaultExcludeDirs)
+
+	for _, path := range []string{
+		"/project/ios/DerivedData",
+		"/project/ios/Pods",
+		"/project/.claude/worktrees/feat-x",
+		"/project/node_modules",
+	} {
+		if !idx.isIgnoredDir(path) {
+			t.Errorf("default excludes should ignore %q", path)
+		}
+	}
+	if idx.isIgnoredDir("/project/ios/Nature") {
+		t.Error("default excludes should not ignore project sources")
+	}
+}
+
 func TestIsIgnoredDir_NilIgnoredDirs(t *testing.T) {
 	idx := &FileIndex{
 		excludeSet:  map[string]bool{"vendor": true},

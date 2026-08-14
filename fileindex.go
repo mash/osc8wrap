@@ -26,20 +26,31 @@ type FileIndex struct {
 	readyChan   chan struct{}
 	cwd         string
 	excludeSet  map[string]bool
+	excludePath []string
 	ignoredDirs map[string]bool
 	watcher     *fsnotify.Watcher
 }
 
 func NewFileIndex(cwd string, excludeDirs []string) *FileIndex {
 	excludeSet := make(map[string]bool)
+	var excludePath []string
 	for _, d := range excludeDirs {
+		d = strings.Trim(d, "/")
+		if d == "" {
+			continue
+		}
+		if strings.Contains(d, "/") {
+			excludePath = append(excludePath, "/"+d)
+			continue
+		}
 		excludeSet[d] = true
 	}
 	return &FileIndex{
-		files:      make(map[string][]FileInfo),
-		readyChan:  make(chan struct{}),
-		cwd:        cwd,
-		excludeSet: excludeSet,
+		files:       make(map[string][]FileInfo),
+		readyChan:   make(chan struct{}),
+		cwd:         cwd,
+		excludeSet:  excludeSet,
+		excludePath: excludePath,
 	}
 }
 
@@ -252,7 +263,18 @@ func (idx *FileIndex) indexDir(dir string) {
 }
 
 func (idx *FileIndex) isIgnoredDir(path string) bool {
-	return idx.excludeSet[filepath.Base(path)] || idx.ignoredDirs[path]
+	if idx.excludeSet[filepath.Base(path)] || idx.ignoredDirs[path] {
+		return true
+	}
+	for _, suffix := range idx.excludePath {
+		// Match the directory itself and everything below it. The walks already
+		// stop at the first match through filepath.SkipDir, but watcher events
+		// arrive with arbitrary paths, so the check has to hold at any depth.
+		if strings.HasSuffix(path, suffix) || strings.Contains(path, suffix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func loadGitIgnoredDirs(ctx context.Context, cwd string) map[string]bool {
