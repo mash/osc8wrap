@@ -24,6 +24,7 @@ type LinkerOptions struct {
 	Terminator      string // "st" (default, ESC \) or "bel" (0x07)
 	SymbolLinks     bool
 	DebugWrites     bool
+	Scratchpad      *sessionScratchpad
 }
 
 type Linker struct {
@@ -37,6 +38,8 @@ type Linker struct {
 	index           *FileIndex
 	terminator      string
 	symbolLinks     bool
+	repo            *githubRepo
+	scratchpad      *sessionScratchpad
 	debugFile       *os.File
 	writeSeq        int
 	tokenizer       *AnsiTokenizer
@@ -66,7 +69,9 @@ func NewLinker(opts LinkerOptions) *Linker {
 		terminator:      terminator,
 		symbolLinks:     opts.SymbolLinks,
 		tokenizer:       NewAnsiTokenizer(),
+		scratchpad:      opts.Scratchpad,
 	}
+	l.repo = newGitHubRepo(opts.Cwd)
 	l.urlPattern = l.buildPattern()
 	if opts.DebugWrites {
 		dir := filepath.Base(opts.Cwd)
@@ -108,6 +113,15 @@ func (l *Linker) buildPattern() *regexp.Regexp {
 		`\w+file` + // files ending with "file" (Makefile, Dockerfile, etc.)
 		`)` +
 		`(:\d+(?:[-:]\d+)?)?` // group 4: optional :line, :line:col, or :line-line
+
+	// GitHub issue/PR reference: "#27081" or "owner/repo#27081". The boundary
+	// excludes "&" as well as word characters so "&#38;" (an HTML entity) is
+	// never mistaken for one; \b after the digits is what rejects both a
+	// longer digit run and a trailing word character, since Go's regexp has
+	// no lookahead to check that directly.
+	pattern += `|(?:^|[^\w&]|\x1b\[[0-9;]*m)` +
+		`((?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?)` + // group 5: optional "owner/repo"
+		`#(\d{1,9})\b` // group 6: issue/PR number
 
 	return regexp.MustCompile(pattern)
 }
@@ -309,6 +323,22 @@ func (l *Linker) processTextWithState(data []byte, styled, inOSC8 bool) []byte {
 			continue
 		}
 
+		if numStart, numEnd, ok := submatch(m, 6); ok {
+			// Group 5 (owner/repo) always participates in this alternative,
+			// even when it matches empty, so its start is the boundary between
+			// the consumed prefix char and the reference text itself.
+			refStart := m[2*5]
+			var repoSlug []byte
+			if start, end, ok := submatch(m, 5); ok {
+				repoSlug = data[start:end]
+			}
+			prefix := data[fullStart:refStart]
+			display := data[refStart:numEnd]
+			result.Write(l.wrapIssueRef(prefix, repoSlug, data[numStart:numEnd], display))
+			last = fullEnd
+			continue
+		}
+
 		pathStart, pathEnd, ok := submatch(m, 3)
 		if !ok {
 			result.Write(data[fullStart:fullEnd])
@@ -442,6 +472,30 @@ func (l *Linker) wrapBareDomain(prefix, domain []byte) []byte {
 	return buf.Bytes()
 }
 
+// wrapIssueRef links a GitHub issue/PR reference such as "#27081" or
+// "owner/repo#27081". "/pull/<n>" is used for both issues and PRs: GitHub
+// redirects it to "/issues/<n>" when n is an issue, so this never has to ask
+// the API which kind it is. With no explicit owner/repo, l.repo.Slug() names
+// the current repository; when that is unknown the reference is left as
+// plain text, since there is nowhere to link it to.
+func (l *Linker) wrapIssueRef(prefix, repoSlug, num, display []byte) []byte {
+	var buf bytes.Buffer
+	buf.Write(prefix)
+
+	slug := string(repoSlug)
+	if slug == "" && l.repo != nil {
+		slug = l.repo.Slug()
+	}
+	if slug == "" {
+		buf.Write(display)
+		return buf.Bytes()
+	}
+
+	url := "https://github.com/" + slug + "/pull/" + string(num)
+	buf.Write(l.osc8Link(url, display))
+	return buf.Bytes()
+}
+
 func (l *Linker) wrapFilePath(prefix, pathPart, locSuffix, displayText []byte) ([]byte, bool) {
 	pathStr := string(pathPart)
 	absPath := l.resolvePath(pathStr)
@@ -458,6 +512,15 @@ func (l *Linker) wrapFilePath(prefix, pathPart, locSuffix, displayText []byte) (
 		strippedAbs := l.resolvePath(stripped)
 		if strippedAbs != "" && l.pathExists(strippedAbs) {
 			return l.wrapFile(prefix, strippedAbs, string(locSuffix), displayText), true
+		}
+	}
+
+	// Claude Code writes into its per-session scratchpad outside the working
+	// tree and prints the result as a bare relative path, which the checks
+	// above never resolve because the file does not exist under cwd.
+	if l.scratchpad != nil {
+		if p := l.scratchpad.Resolve(pathStr); p != "" {
+			return l.wrapFile(prefix, p, string(locSuffix), displayText), true
 		}
 	}
 

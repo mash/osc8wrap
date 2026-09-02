@@ -80,6 +80,8 @@ osc8wrap sessions
 
 - Detects file paths (absolute and relative) in command output
 - Detects `http://` and `https://` URLs
+- Detects `#27081` and `owner/repo#27081`, and links them to the issue or pull request on GitHub
+- Detects the `scratchpad/` and `tasks/` paths Claude Code prints for the files it writes outside the working tree
 - Converts them to OSC 8 hyperlinks that work in supported terminals
 - Runs commands through a PTY, so colors and interactive programs work
 - Processes output piped in from other commands
@@ -100,6 +102,9 @@ osc8wrap sessions
 | \*file names         | `Makefile`, `Dockerfile`         |
 | Git diff paths       | `a/src/main.go`, `b/src/main.go` |
 | URL                  | `https://example.com/docs`       |
+| Issue or PR reference | `#27081`                        |
+| Cross-repo reference | `owner/repo#27081`               |
+| Session scratchpad path | `scratchpad/notes.html`       |
 
 A path is linked only if it exists, as a file or as a directory. An extensionless file needs a path prefix (`/`, `./`, `../`, `~/`) or a name ending in `file` (Makefile, Dockerfile, Gemfile). Resolution strips git diff `a/` and `b/` prefixes.
 
@@ -129,6 +134,20 @@ When a path like `main.go:10` doesn't exist relative to the current directory, o
 - Resolution runs only when the literal path doesn't exist
 - While the index is still building, unresolved paths stay plain text
 - Disable with `--no-resolve-basename` for faster startup on large codebases
+
+### Session scratchpad paths
+
+Claude Code writes files it needs for itself — a draft, a scratch query, a subagent's output — outside the working tree, into a directory of its own named after the session. It then prints them the way it holds them internally, as bare relative paths: `scratchpad/notes.html`, `tasks/a99d9fb.output`. Nothing of that name exists next to your code, so these used to stay plain text. osc8wrap resolves them against the directory of the session it is wrapping.
+
+Only the `scratchpad/` and `tasks/` prefixes are treated this way. They are the two directories Claude Code creates per session, and confining the rule to them keeps every other unresolved relative path answering to the basename index instead.
+
+The session is identified by the pid of the command osc8wrap started, joined against the metadata Claude publishes about itself — the same join the [Sessions](#sessions) listing uses to attach a session id to a live wrapper. Claude publishes that id a moment after it starts rather than at launch, so the lookup is lazy and retried: a scratchpad path printed in a session's first moments stays plain, and the ones after it link.
+
+**Limits:**
+
+- It resolves only for a session osc8wrap is wrapping. Pipe mode has no child process to identify, so it never resolves.
+- It resolves only the *running* session's files. A path from some other session — one you are reading about rather than running — has no way to be told apart from the current one's, and is left alone.
+- Like the basename index, it runs only when the literal path does not exist, and it is consulted before the index.
 
 ### Editor schemes
 
@@ -172,6 +191,22 @@ $ echo "NewLinker" | osc8wrap --scheme=cursor
 ```
 
 Disable with `--no-symbol-links`.
+
+### GitHub issue and pull request references
+
+`#27081` links to that issue or pull request in the current repository, and `owner/repo#27081` links to it in the repository it names.
+
+The current repository comes from the `origin` remote, read out of `.git/config`. In a linked worktree that is the main checkout's config, which is where the remote lives. Only a `github.com` origin produces a link: an origin on GitHub Enterprise or on another host yields no link rather than a wrong one, and so does a repository with no origin at all. The `owner/repo#27081` form names its own repository and needs no remote.
+
+The link is always `/pull/<n>`, for either kind. GitHub redirects `/pull/N` to `/issues/N` when N turns out to be an issue, so one form serves both and osc8wrap never has to ask an API which it is looking at.
+
+**What does not match:**
+
+| Input           | Why                                            |
+| --------------- | ---------------------------------------------- |
+| `abc#1`         | a `#` preceded by a word character              |
+| `&#38;`         | a `#` preceded by `&`, which is an HTML entity  |
+| `#1234567890`   | more than nine digits                           |
 
 ## Sessions
 

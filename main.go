@@ -119,6 +119,8 @@ func run() int {
 	opts.Output = os.Stdout
 	opts.Cwd = cwd
 	opts.Hostname = hostname
+	scratchpad := newSessionScratchpad()
+	opts.Scratchpad = scratchpad
 
 	linker := NewLinker(opts)
 
@@ -137,7 +139,7 @@ func run() int {
 		}
 		return 0
 	}
-	exitCode, err := runPTYMode(linker, cmdArgs)
+	exitCode, err := runPTYMode(linker, cmdArgs, scratchpad)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "osc8wrap: %v\n", err)
 	}
@@ -247,7 +249,7 @@ func runPipeMode(linker *Linker) error {
 	return linker.Flush()
 }
 
-func runPTYMode(linker *Linker, cmdArgs []string) (int, error) {
+func runPTYMode(linker *Linker, cmdArgs []string, scratchpad *sessionScratchpad) (int, error) {
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	ptmx, err := pty.Start(cmd)
@@ -255,6 +257,7 @@ func runPTYMode(linker *Linker, cmdArgs []string) (int, error) {
 		return 1, fmt.Errorf("failed to start pty: %w", err)
 	}
 	defer ptmx.Close() //nolint:errcheck
+	scratchpad.setChildPID(cmd.Process.Pid)
 
 	// Publishing the session is a convenience for `osc8wrap sessions`; it must
 	// never keep the wrapped command from running, so errors are dropped.

@@ -122,7 +122,7 @@ func contextFromGitDir(gitDir, worktree, root string) gitContext {
 // worktree's administrative directory under the main repository, and the
 // commondir beside it names the main repository's own .git.
 func linkedWorktreeContext(gitFile, worktree string) gitContext {
-	content, ok := readSmallGitFile(gitFile)
+	content, ok := readSmallGitFile(gitFile, maxGitFileSize)
 	if !ok {
 		return gitContext{}
 	}
@@ -154,7 +154,7 @@ func parseGitdirPointer(content, base string) (string, bool) {
 // repository's .git directory, possibly relative to the worktree's gitdir, so
 // the root is that directory's parent.
 func mainRootFromCommondir(gitDir string) (string, bool) {
-	content, ok := readSmallGitFile(filepath.Join(gitDir, "commondir"))
+	content, ok := readSmallGitFile(filepath.Join(gitDir, "commondir"), maxGitFileSize)
 	if !ok {
 		return "", false
 	}
@@ -182,7 +182,7 @@ func existingGitDir(path, base string) (string, bool) {
 // readGitHead returns the branch name, or the short sha of a detached HEAD.
 // An empty result means "no usable HEAD" and fails the whole resolution.
 func readGitHead(gitDir string) string {
-	content, ok := readSmallGitFile(filepath.Join(gitDir, "HEAD"))
+	content, ok := readSmallGitFile(filepath.Join(gitDir, "HEAD"), maxGitFileSize)
 	if !ok {
 		return ""
 	}
@@ -200,14 +200,17 @@ func readGitHead(gitDir string) string {
 	return head[:shortSHALen]
 }
 
-func readSmallGitFile(path string) (string, bool) {
+// readSmallGitFile reads path, capped at maxSize: callers pass maxGitFileSize
+// for the one-line administrative files here, and githubrepo.go passes a
+// larger cap for .git/config, which can hold many remotes and branches.
+func readSmallGitFile(path string, maxSize int64) (string, bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", false
 	}
 	defer f.Close() //nolint:errcheck
 
-	b, err := io.ReadAll(io.LimitReader(f, maxGitFileSize))
+	b, err := io.ReadAll(io.LimitReader(f, maxSize))
 	if err != nil {
 		return "", false
 	}

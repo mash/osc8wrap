@@ -1274,3 +1274,95 @@ func TestHasURIScheme(t *testing.T) {
 		}
 	}
 }
+
+func TestLinker_IssueRefs(t *testing.T) {
+	// A fixture repo whose origin resolves to a known slug, for the bare
+	// "#27081" form.
+	repoDir := makeGitMainCheckout(t, filepath.Join(t.TempDir(), "repo"), "ref: refs/heads/main\n")
+	gitTestWriteFile(t, filepath.Join(repoDir, ".git", "config"),
+		"[remote \"origin\"]\n\turl = https://github.com/mash/osc8wrap.git\n")
+
+	// A directory with no github origin at all.
+	noOriginDir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		cwd      string
+		input    string
+		expected string
+	}{
+		{
+			name:     "bare reference linked via repo origin",
+			cwd:      repoDir,
+			input:    "see #27081\n",
+			expected: "see \x1b]8;;https://github.com/mash/osc8wrap/pull/27081\x1b\\#27081\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "owner/repo reference needs no remote",
+			cwd:      noOriginDir,
+			input:    "see owner/repo#12\n",
+			expected: "see \x1b]8;;https://github.com/owner/repo/pull/12\x1b\\owner/repo#12\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "single digit",
+			cwd:      repoDir,
+			input:    "#0\n",
+			expected: "\x1b]8;;https://github.com/mash/osc8wrap/pull/0\x1b\\#0\x1b]8;;\x1b\\\n",
+		},
+		{
+			name:     "html entity not linked",
+			cwd:      repoDir,
+			input:    "a &#38; b\n",
+			expected: "a &#38; b\n",
+		},
+		{
+			name:     "word immediately before hash not linked",
+			cwd:      repoDir,
+			input:    "abc#1\n",
+			expected: "abc#1\n",
+		},
+		{
+			name:     "too many digits not linked",
+			cwd:      repoDir,
+			input:    "#12345678901\n",
+			expected: "#12345678901\n",
+		},
+		{
+			name:     "no github origin leaves it plain",
+			cwd:      noOriginDir,
+			input:    "see #27081\n",
+			expected: "see #27081\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinker(LinkerOptions{
+				Output:   &buf,
+				Cwd:      tt.cwd,
+				Hostname: "testhost",
+				Scheme:   "file",
+				Domains:  []string{"github.com"},
+			})
+			assertWrite(t, linker, tt.input, tt.expected)
+		})
+	}
+}
+
+func TestLinker_IssueRefInsideOSC8Untouched(t *testing.T) {
+	repoDir := makeGitMainCheckout(t, filepath.Join(t.TempDir(), "repo"), "ref: refs/heads/main\n")
+	gitTestWriteFile(t, filepath.Join(repoDir, ".git", "config"),
+		"[remote \"origin\"]\n\turl = https://github.com/mash/osc8wrap.git\n")
+
+	var buf bytes.Buffer
+	linker := NewLinker(LinkerOptions{
+		Output:   &buf,
+		Cwd:      repoDir,
+		Hostname: "testhost",
+		Scheme:   "file",
+		Domains:  []string{"github.com"},
+	})
+	input := "see \x1b]8;;https://example.com\x1b\\#27081\x1b]8;;\x1b\\\n"
+	assertWrite(t, linker, input, input)
+}
