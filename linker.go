@@ -249,8 +249,10 @@ func isStyledTrailingTokenChar(b byte) bool {
 	if isWordChar(b) {
 		return true
 	}
+	// '#' keeps an issue reference such as "#354" in one piece: without it
+	// the head ends in a lone '#' and the flushed "354" becomes a symbol link.
 	switch b {
-	case '.', '/', '-', '%', '+', '@', ':', '~':
+	case '.', '/', '-', '%', '+', '@', ':', '~', '#':
 		return true
 	default:
 		return false

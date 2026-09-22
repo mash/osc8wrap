@@ -1350,6 +1350,33 @@ func TestLinker_IssueRefs(t *testing.T) {
 	}
 }
 
+// Claude Code draws each word followed by a cursor-column move while an SGR
+// style is active. The trailing word of a styled text token is held back as
+// a pending word; that split must not separate "#" from its digits, or the
+// digits alone become a symbol link instead of an issue reference.
+func TestLinker_IssueRefStyledBeforeCursorMove(t *testing.T) {
+	repoDir := makeGitMainCheckout(t, filepath.Join(t.TempDir(), "repo"), "ref: refs/heads/main\n")
+	gitTestWriteFile(t, filepath.Join(repoDir, ".git", "config"),
+		"[remote \"origin\"]\n\turl = https://github.com/mash/osc8wrap.git\n")
+
+	var buf bytes.Buffer
+	linker := NewLinker(LinkerOptions{
+		Output:      &buf,
+		Cwd:         repoDir,
+		Hostname:    "testhost",
+		Scheme:      "file",
+		Domains:     []string{"github.com"},
+		SymbolLinks: true,
+	})
+	input := "\x1b[2m残す。#354\x1b[20G→\x1b[22G#355\x1b[27Gを\x1b[22m\n"
+	expected := "\x1b[2m残す。" +
+		"\x1b]8;;https://github.com/mash/osc8wrap/pull/354\x1b\\#354\x1b]8;;\x1b\\" +
+		"\x1b[20G→\x1b[22G" +
+		"\x1b]8;;https://github.com/mash/osc8wrap/pull/355\x1b\\#355\x1b]8;;\x1b\\" +
+		"\x1b[27Gを\x1b[22m\n"
+	assertWrite(t, linker, input, expected)
+}
+
 func TestLinker_IssueRefInsideOSC8Untouched(t *testing.T) {
 	repoDir := makeGitMainCheckout(t, filepath.Join(t.TempDir(), "repo"), "ref: refs/heads/main\n")
 	gitTestWriteFile(t, filepath.Join(repoDir, ".git", "config"),
