@@ -88,7 +88,7 @@ func TestParseArgsConsumesEveryOption(t *testing.T) {
 	for _, arg := range []string{
 		"--scheme=cursor", "--terminator=bel", "--domains=github.com,example.com",
 		"--exclude-dir=vendor", "--no-resolve-basename", "--no-symbol-links",
-		"--debug-writes",
+		"--debug-writes", "--github-org=example",
 	} {
 		args := []string{arg, "echo", "hi"}
 		_, cmdArgs, sawDoubleDash := parseArgs(args)
@@ -123,5 +123,22 @@ func TestParseArgsMaxWatches(t *testing.T) {
 				t.Errorf("OSC8WRAP_MAX_WATCHES=%q gave MaxWatches %d, want %d", tt.env, opts.MaxWatches, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseArgsGitHubOrg(t *testing.T) {
+	t.Setenv("OSC8WRAP_GITHUB_ORG", "example")
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{nil, "example"},
+		{[]string{"--github-org=other"}, "other"},
+		{[]string{"--github-org="}, ""},
+	} {
+		opts, _, _ := parseArgs(tt.args)
+		if opts.GitHubOrg != tt.want {
+			t.Errorf("parseArgs(%q).GitHubOrg = %q, want %q", tt.args, opts.GitHubOrg, tt.want)
+		}
 	}
 }

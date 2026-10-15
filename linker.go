@@ -17,6 +17,7 @@ type LinkerOptions struct {
 	Cwd             string
 	Hostname        string
 	Scheme          string
+	GitHubOrg       string // default owner for repo#number references
 	Domains         []string
 	ResolveBasename bool
 	ExcludeDirs     []string
@@ -32,6 +33,7 @@ type Linker struct {
 	cwd             string
 	hostname        string
 	scheme          string
+	githubOrg       string
 	domains         []string
 	urlPattern      *regexp.Regexp
 	resolveBasename bool
@@ -64,6 +66,7 @@ func NewLinker(opts LinkerOptions) *Linker {
 		hostname:        opts.Hostname,
 		scheme:          scheme,
 		domains:         opts.Domains,
+		githubOrg:       opts.GitHubOrg,
 		resolveBasename: opts.ResolveBasename,
 		index:           NewFileIndex(opts.Cwd, opts.ExcludeDirs, opts.MaxWatches),
 		terminator:      terminator,
@@ -99,29 +102,27 @@ func (l *Linker) buildPattern() *regexp.Regexp {
 		}
 		pattern += `|(?:^|[^/\w.-]|\x1b\[[0-9;]*m)((?:` + strings.Join(escaped, "|") + `)/[^\s<>"'\x60\x00-\x1f\x7f]+)`
 	} else {
-		pattern += `|()` // empty group to keep group numbers consistent
+		pattern += `|(\b\B)` // impossible match, retaining group numbers
 	}
+
+	// Match references before file paths so dotted repo names are not
+	// consumed as filenames. Exclude slug characters from the boundary to
+	// avoid matching only the suffix of an invalid or nested repository name.
+	pattern += `|(?:^|[^\w&/.@-]|\x1b\[[0-9;]*m)` +
+		`((?:[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)?)?)` + // group 3: optional repo or owner/repo
+		`#(\d{1,9})\b` // group 4: issue/PR number
 
 	// file path pattern
 	pattern += `|` +
 		`(?:^|[^/\w.%+@\x{0080}-\x{10FFFF}-]|\x1b\[[0-9;]*m)` + // boundary: start of line, non-path char, or ANSI SGR
-		`(` + // group 3: path
+		`(` + // group 5: path
 		`(?:~|\.{0,2})/[\w./%+@\x{0080}-\x{10FFFF}-]+(?:\.\w+)?` + // starts with ~/, /, ./, or ../: extension optional
 		`|` +
 		`[\w./%+@\x{0080}-\x{10FFFF}-]+\.\w+` + // no path prefix: extension required
 		`|` +
 		`\w+file` + // files ending with "file" (Makefile, Dockerfile, etc.)
 		`)` +
-		`(:\d+(?:[-:]\d+)?)?` // group 4: optional :line, :line:col, or :line-line
-
-	// GitHub issue/PR reference: "#27081" or "owner/repo#27081". The boundary
-	// excludes "&" as well as word characters so "&#38;" (an HTML entity) is
-	// never mistaken for one; \b after the digits is what rejects both a
-	// longer digit run and a trailing word character, since Go's regexp has
-	// no lookahead to check that directly.
-	pattern += `|(?:^|[^\w&]|\x1b\[[0-9;]*m)` +
-		`((?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?)` + // group 5: optional "owner/repo"
-		`#(\d{1,9})\b` // group 6: issue/PR number
+		`(:\d+(?:[-:]\d+)?)?` // group 6: optional :line, :line:col, or :line-line
 
 	return regexp.MustCompile(pattern)
 }
@@ -325,13 +326,13 @@ func (l *Linker) processTextWithState(data []byte, styled, inOSC8 bool) []byte {
 			continue
 		}
 
-		if numStart, numEnd, ok := submatch(m, 6); ok {
-			// Group 5 (owner/repo) always participates in this alternative,
+		if numStart, numEnd, ok := submatch(m, 4); ok {
+			// Group 3 (repo or owner/repo) always participates in this alternative,
 			// even when it matches empty, so its start is the boundary between
 			// the consumed prefix char and the reference text itself.
-			refStart := m[2*5]
+			refStart := m[2*3]
 			var repoSlug []byte
-			if start, end, ok := submatch(m, 5); ok {
+			if start, end, ok := submatch(m, 3); ok {
 				repoSlug = data[start:end]
 			}
 			prefix := data[fullStart:refStart]
@@ -341,7 +342,7 @@ func (l *Linker) processTextWithState(data []byte, styled, inOSC8 bool) []byte {
 			continue
 		}
 
-		pathStart, pathEnd, ok := submatch(m, 3)
+		pathStart, pathEnd, ok := submatch(m, 5)
 		if !ok {
 			result.Write(data[fullStart:fullEnd])
 			last = fullEnd
@@ -350,7 +351,7 @@ func (l *Linker) processTextWithState(data []byte, styled, inOSC8 bool) []byte {
 
 		pathPart := data[pathStart:pathEnd]
 		var locSuffix []byte
-		if start, end, ok := submatch(m, 4); ok {
+		if start, end, ok := submatch(m, 6); ok {
 			locSuffix = data[start:end]
 		}
 
@@ -474,12 +475,9 @@ func (l *Linker) wrapBareDomain(prefix, domain []byte) []byte {
 	return buf.Bytes()
 }
 
-// wrapIssueRef links a GitHub issue/PR reference such as "#27081" or
-// "owner/repo#27081". "/pull/<n>" is used for both issues and PRs: GitHub
-// redirects it to "/issues/<n>" when n is an issue, so this never has to ask
-// the API which kind it is. With no explicit owner/repo, l.repo.Slug() names
-// the current repository; when that is unknown the reference is left as
-// plain text, since there is nowhere to link it to.
+// wrapIssueRef links #number via the current origin, repo#number via the
+// configured organization, and owner/repo#number via its explicit owner.
+// /pull/<n> serves both issues and PRs through GitHub's redirect.
 func (l *Linker) wrapIssueRef(prefix, repoSlug, num, display []byte) []byte {
 	var buf bytes.Buffer
 	buf.Write(prefix)
@@ -487,6 +485,13 @@ func (l *Linker) wrapIssueRef(prefix, repoSlug, num, display []byte) []byte {
 	slug := string(repoSlug)
 	if slug == "" && l.repo != nil {
 		slug = l.repo.Slug()
+	}
+	if slug != "" && !strings.Contains(slug, "/") {
+		if githubOrgPattern.MatchString(l.githubOrg) {
+			slug = l.githubOrg + "/" + slug
+		} else {
+			slug = ""
+		}
 	}
 	if slug == "" {
 		buf.Write(display)

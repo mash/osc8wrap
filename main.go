@@ -75,6 +75,8 @@ Options:
                           bel: BEL 0x07 (legacy xterm)
   --domains=LIST          Comma-separated domains to linkify without https://
                           (default: github.com, env: OSC8WRAP_DOMAINS)
+  --github-org=NAME       GitHub organization for repo#number references
+                          Can also be set via OSC8WRAP_GITHUB_ORG
   --no-resolve-basename   Disable basename resolution (default: enabled)
                           Can also be set via OSC8WRAP_NO_RESOLVE_BASENAME=1
   --exclude-dir=DIR,...   Directories to exclude from search (replaces defaults)
@@ -172,6 +174,7 @@ func lookupSubcommand(cmdArgs []string, sawDoubleDash bool) (func([]string) int,
 }
 
 func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string, sawDoubleDash bool) {
+	opts.GitHubOrg = os.Getenv("OSC8WRAP_GITHUB_ORG")
 	opts.Scheme = os.Getenv("OSC8WRAP_SCHEME")
 	opts.Terminator = os.Getenv("OSC8WRAP_TERMINATOR")
 	opts.Domains = []string{"github.com"}
@@ -197,6 +200,8 @@ func parseArgs(args []string) (opts LinkerOptions, cmdArgs []string, sawDoubleDa
 			opts.Terminator = v
 		} else if v, ok := strings.CutPrefix(arg, "--domains="); ok {
 			opts.Domains = splitComma(v)
+		} else if v, ok := strings.CutPrefix(arg, "--github-org="); ok {
+			opts.GitHubOrg = v
 		} else if arg == "--no-resolve-basename" {
 			opts.ResolveBasename = false
 		} else if v, ok := strings.CutPrefix(arg, "--exclude-dir="); ok {

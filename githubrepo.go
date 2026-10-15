@@ -12,6 +12,9 @@ import (
 // far more than any hand-written config needs.
 const maxGitConfigSize = 64 << 10
 
+// githubOrgPattern accepts a GitHub organization or user login.
+var githubOrgPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
+
 // githubRepoURLPattern matches the three origin url forms git writes for a
 // GitHub remote:
 //

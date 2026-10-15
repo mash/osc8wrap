@@ -32,6 +32,7 @@ osc8wrap preview <id> [query...]
 
 - `--scheme=NAME` - URL scheme for file links (default: `file`)
 - `--terminator=TYPE` - OSC8 string terminator: `st` for ESC \ (default, ECMA-48), `bel` for BEL 0x07 (legacy xterm)
+- `--github-org=NAME` - Default GitHub organization (or user) for `repo#number` references
 - `--domains=LIST` - Comma-separated domains to linkify without `https://` (default: `github.com`)
 - `--no-resolve-basename` - Disable basename resolution (default: enabled)
 - `--exclude-dir=DIR,...` - Directories to exclude from basename search (default: `vendor,node_modules,.git,__pycache__,.cache`)
@@ -43,6 +44,7 @@ Options can also be set via environment variables. CLI flags take precedence.
 | ----------------------- | -------------------------------- |
 | `--scheme`              | `OSC8WRAP_SCHEME`                |
 | `--terminator`          | `OSC8WRAP_TERMINATOR`            |
+| `--github-org`          | `OSC8WRAP_GITHUB_ORG`            |
 | `--domains`             | `OSC8WRAP_DOMAINS`               |
 | `--no-resolve-basename` | `OSC8WRAP_NO_RESOLVE_BASENAME=1` |
 | `--exclude-dir`         | `OSC8WRAP_EXCLUDE_DIRS`          |
@@ -196,6 +198,18 @@ Disable with `--no-symbol-links`.
 
 `#27081` links to that issue or pull request in the current repository, and `owner/repo#27081` links to it in the repository it names.
 
+Set a default organization (or user) to also link `repo#number`, including Markdown such as `**cloud#1436**`:
+
+```sh
+export OSC8WRAP_GITHUB_ORG=example-org
+# cloud#1436 now links to https://github.com/example-org/cloud/pull/1436
+
+# Or configure one invocation:
+osc8wrap --github-org=example-org claude
+```
+
+The command-line option overrides the environment variable; `--github-org=` disables this shorthand. You can persist the export in your shell configuration or `.envrc`. Without an organization, `repo#number` stays plain text. Invalid organization values also leave it unlinked. An explicit `owner/repo#number` always uses its own owner, and bare `#number` continues to use the current repository's origin.
+
 The current repository comes from the `origin` remote, read out of `.git/config`. In a linked worktree that is the main checkout's config, which is where the remote lives. Only a `github.com` origin produces a link: an origin on GitHub Enterprise or on another host yields no link rather than a wrong one, and so does a repository with no origin at all. The `owner/repo#27081` form names its own repository and needs no remote.
 
 The link is always `/pull/<n>`, for either kind. GitHub redirects `/pull/N` to `/issues/N` when N turns out to be an issue, so one form serves both and osc8wrap never has to ask an API which it is looking at.
@@ -204,7 +218,7 @@ The link is always `/pull/<n>`, for either kind. GitHub redirects `/pull/N` to `
 
 | Input           | Why                                            |
 | --------------- | ---------------------------------------------- |
-| `abc#1`         | a `#` preceded by a word character              |
+| `abc#1`         | no default GitHub organization configured        |
 | `&#38;`         | a `#` preceded by `&`, which is an HTML entity  |
 | `#1234567890`   | more than nine digits                           |
 

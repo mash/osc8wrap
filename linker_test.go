@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1392,4 +1393,52 @@ func TestLinker_IssueRefInsideOSC8Untouched(t *testing.T) {
 	})
 	input := "see \x1b]8;;https://example.com\x1b\\#27081\x1b]8;;\x1b\\\n"
 	assertWrite(t, linker, input, input)
+}
+
+func TestLinker_RepoIssueRefs(t *testing.T) {
+	repoDir := makeGitMainCheckout(t, filepath.Join(t.TempDir(), "repo"), "ref: refs/heads/main\n")
+	gitTestWriteFile(t, filepath.Join(repoDir, ".git", "config"),
+		"[remote \"origin\"]\n\turl = https://github.com/mash/osc8wrap.git\n")
+	for _, tt := range []struct {
+		name, org, input, slug, display string
+	}{
+		{"repo reference", "example", "cloud#1436", "example/cloud", "cloud#1436"},
+		{"markdown bold", "example", "**cloud#1436**", "example/cloud", "cloud#1436"},
+		{"dotted repo", "example", "cloud.api#1436", "example/cloud.api", "cloud.api#1436"},
+		{"hyphen and underscore", "example-org", "cloud_api-v2#1436", "example-org/cloud_api-v2", "cloud_api-v2#1436"},
+		{"explicit owner wins", "example", "other/cloud.api#1436", "other/cloud.api", "other/cloud.api#1436"},
+		{"bare reference retains origin", "example", "#1436", "mash/osc8wrap", "#1436"},
+		{"unset leaves repo plain", "", "cloud#1436", "", ""},
+		{"invalid org", "example/other", "cloud#1436", "", ""},
+		{"invalid repo path", "example", "a/b/cloud#1436", "", ""},
+		{"email-like text", "example", "user@cloud#1436", "", ""},
+		{"html entity", "example", "&#38;", "", ""},
+		{"too many digits", "example", "cloud#1234567890", "", ""},
+		{"trailing letter", "example", "cloud#1436abc", "", ""},
+		{"existing hyperlink", "example", "\x1b]8;;https://example.com\x1b\\cloud#1436\x1b]8;;\x1b\\", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			linker := NewLinker(LinkerOptions{Output: &buf, Cwd: repoDir, GitHubOrg: tt.org})
+			want := tt.input
+			if tt.slug != "" {
+				link := "\x1b]8;;https://github.com/" + tt.slug + "/pull/1436\x1b\\" + tt.display + "\x1b]8;;\x1b\\"
+				want = strings.Replace(tt.input, tt.display, link, 1)
+			}
+			assertWrite(t, linker, tt.input, want)
+		})
+	}
+
+	// Styled tokens split across writes must retain the entire reference.
+	var buf bytes.Buffer
+	linker := NewLinker(LinkerOptions{Output: &buf, Cwd: t.TempDir(), GitHubOrg: "example", SymbolLinks: true})
+	for _, chunk := range []string{"\x1b[1mcl", "oud#14", "36\x1b[0m"} {
+		if _, err := linker.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "\x1b[1m\x1b]8;;https://github.com/example/cloud/pull/1436\x1b\\cloud#1436\x1b]8;;\x1b\\\x1b[0m"
+	if buf.String() != want {
+		t.Errorf("split styled reference = %q, want %q", buf.String(), want)
+	}
 }
