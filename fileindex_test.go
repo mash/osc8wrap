@@ -149,6 +149,8 @@ func TestDefaultExcludeDirs_CoversXcodeTrees(t *testing.T) {
 		"/project/ios/DerivedData",
 		"/project/ios/Pods",
 		"/project/.claude/worktrees/feat-x",
+		"/project/.worktrees",
+		"/project/nested/.worktrees",
 		"/project/node_modules",
 	} {
 		if !idx.isIgnoredDir(path) {

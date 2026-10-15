@@ -41,7 +41,7 @@ var defaultExcludeDirs = []string{
 	// caches
 	"__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".terraform",
 	// linked git worktrees created by tooling
-	".claude/worktrees",
+	".claude/worktrees", ".worktrees",
 }
 
 const usage = `Usage: osc8wrap [options] <command> [args...]
